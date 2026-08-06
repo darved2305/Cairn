@@ -1,0 +1,30 @@
+# .agents/skills/ is vendored verbatim from cockroachlabs/cockroachdb-skills
+# (Apache-2.0) — excluded everywhere below so these hooks never rewrite
+# third-party content we're supposed to be committing as-is.
+exclude: ^\.agents/skills/
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.14.1
+    hooks:
+      - id: mypy
+        additional_dependencies: ["psycopg[binary,pool]>=3.2"]
+        args: [--config-file=pyproject.toml]
+        files: ^src/
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+      - id: detect-private-key

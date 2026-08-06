@@ -1,0 +1,35 @@
+# secrets / local env
+.env
+*.pem
+*.key
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# node (console frontend, added later)
+node_modules/
+
+# terraform (added later)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+
+# os / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# local data / artifacts — never commit vendored datasets or model weights
+data/raw/
+*.parquet
+*.pt

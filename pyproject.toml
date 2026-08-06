@@ -1,0 +1,64 @@
+[project]
+name = "cairn"
+version = "0.1.0"
+description = "Causal reuse memory for expensive compute."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+dependencies = [
+    "psycopg[binary,pool]>=3.2,<4",
+    "typer>=0.15",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+cairn = "cairn.cli:app"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.122",
+    "pre-commit>=4.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cairn"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests", "scripts"]
+# Never touch docs — ruff's markdown-fence formatting would otherwise
+# rewrite the Python snippets embedded in PLAN.md/PROJECT.md, which are
+# locked planning documents, not source code owned by this tool.
+extend-exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4"]
+ignore = ["E501"]  # ruff format owns line length
+
+[tool.ruff.lint.isort]
+known-first-party = ["cairn"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src"]
+# psycopg's pool/binary extras don't ship complete stubs; unblock strict mode
+# on the rest of the codebase rather than sprinkling `type: ignore`.
+[[tool.mypy.overrides]]
+module = "psycopg.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: requires a live CockroachDB cluster (CAIRN_DATABASE_URL)",
+]

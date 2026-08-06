@@ -1,0 +1,7 @@
+# Force LF everywhere. The pipeline runs in Linux containers (ECS Fargate,
+# GitHub Actions); CRLF in a shell script or .sql file is a real bug, not
+# just cosmetic — Windows contributors otherwise get silent line-ending
+# drift that surfaces as a broken shebang or a shell script that won't run.
+* text=auto eol=lf
+
+*.sh text eol=lf

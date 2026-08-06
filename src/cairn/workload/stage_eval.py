@@ -15,7 +15,7 @@ import torch
 from sklearn.metrics import accuracy_score, f1_score
 
 from cairn.config import StageConfig
-from cairn.workload.stage_train import NUM_LABELS, Classifier, JoinedData
+from cairn.workload.stage_train import HIDDEN_DIM, INPUT_DIM, NUM_LABELS, Classifier, JoinedData
 
 SUPPORTED_METRICS = frozenset({"accuracy", "macro_f1"})
 
@@ -46,6 +46,8 @@ def run(
     *,
     config: StageConfig | None = None,
     metrics: list[str] | None = None,
+    input_dim: int = INPUT_DIM,
+    hidden_dim: int = HIDDEN_DIM,
     num_labels: int = NUM_LABELS,
 ) -> EvalArtifact:
     if metrics is None:
@@ -58,7 +60,16 @@ def run(
     x_test = torch.from_numpy(joined.embeddings[test_mask])
     y_true = joined.labels[test_mask]
 
-    model = Classifier(num_labels=num_labels)
+    # input_dim/hidden_dim are caller-supplied, not read from eval's own
+    # config section — mirrors num_labels above. The architecture that
+    # produced state_dict_bytes lives in the checkpoint's own provenance
+    # (the train stage's config at the time it ran), not in eval.yaml; eval
+    # has no way to discover it on its own, and guessing via the
+    # module-level defaults broke the instant a caller trained with a
+    # non-default hidden_dim (PROJECT.md §4.3's own hidden_dim: 256->512
+    # worked example) — the load below raised a shape-mismatch RuntimeError
+    # every time until this was made explicit.
+    model = Classifier(input_dim=input_dim, hidden_dim=hidden_dim, num_labels=num_labels)
     # weights_only=True: a checkpoint is untrusted input as far as pickle
     # is concerned — this loads only tensors, never arbitrary objects.
     state_dict = torch.load(BytesIO(state_dict_bytes), weights_only=True)

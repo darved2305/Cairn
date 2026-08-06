@@ -5,7 +5,7 @@ exclude: ^\.agents/skills/
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+    rev: v0.16.1
     hooks:
       - id: ruff
         args: [--fix]
@@ -25,6 +25,8 @@ repos:
           - "torch>=2.5"
           - "numpy>=2.0"
           - "pandas>=2.2"
+          - "pyyaml>=6.0"
+          - "types-pyyaml>=6.0"
         args: [--config-file=pyproject.toml]
         files: ^src/
 

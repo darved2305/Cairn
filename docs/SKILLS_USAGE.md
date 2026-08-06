@@ -51,6 +51,31 @@ recheck once D7's real cross-region ECS race introduces actual network
 latency between contenders, which is what the ~3.1 → ~0.4 target in
 PROJECT.md §10 item 2 was estimating for.
 
+## `cockroachdb-sql`
+
+`.agents/skills/cockroachdb-sql/SKILL.md`
+
+**Fundamental/schema rules → `db/migrations/0004_causal_graph.sql`.** D4's
+`code_units` and `code_edges` tables use explicit primary keys and canonical
+CockroachDB types. The commit/module access path is a covering index with
+`STORING (qualname, ast_digest, docstring_digest, is_private)`, so graph
+inspection does not need an index join just to render code-unit evidence.
+
+**DML/query rules → `src/cairn/db/graph.py`.** Write-only statements use
+`RETURNING NOTHING`; conditional provenance upserts return the existing digest
+and reject a conflicting causal edge instead of silently overwriting history.
+Artifact and typed-input writes stay inside the same serializable transaction
+as fenced claim completion. The skill review also exposed and fixed a D2 edge
+case: completion now checks the fence before inserting, so a dispossessed
+worker cannot commit an orphan artifact row.
+
+**Live validation, 2026-08-09.** Migration 0004 and every new D4 DML/read query
+were run through `EXPLAIN` on CockroachDB v25.2.22. Point lookups used the
+primary indexes, the commit cleanup used a `delete range`, and the
+`artifact_inputs` read used the primary-key prefix without a sort. The live
+integration suite then proved idempotent code-graph population, atomic typed
+provenance, and the no-orphan stale-fence path.
+
 ## Pending skills (referenced by day, not yet applied)
 
 - **Vector index prefix columns** (D6) — `failure_signatures` gets

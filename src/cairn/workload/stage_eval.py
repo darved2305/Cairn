@@ -14,7 +14,10 @@ import numpy as np
 import torch
 from sklearn.metrics import accuracy_score, f1_score
 
+from cairn.config import StageConfig
 from cairn.workload.stage_train import NUM_LABELS, Classifier, JoinedData
+
+SUPPORTED_METRICS = frozenset({"accuracy", "macro_f1"})
 
 
 @dataclass(frozen=True)
@@ -25,9 +28,32 @@ class EvalArtifact:
     num_eval_examples: int
 
 
+def read_config(config: StageConfig) -> dict[str, list[str]]:
+    metrics = config.get("metrics", default=["accuracy", "macro_f1"], expected_type=list)
+    if not metrics or any(not isinstance(metric, str) for metric in metrics):
+        raise ValueError("eval.metrics must be a non-empty list of strings")
+    unknown = sorted(set(metrics) - SUPPORTED_METRICS)
+    if unknown:
+        raise ValueError(f"unsupported eval metrics: {', '.join(unknown)}")
+    if len(metrics) != len(set(metrics)):
+        raise ValueError("eval.metrics cannot contain duplicates")
+    return {"metrics": metrics}
+
+
 def run(
-    joined: JoinedData, state_dict_bytes: bytes, *, num_labels: int = NUM_LABELS
+    joined: JoinedData,
+    state_dict_bytes: bytes,
+    *,
+    config: StageConfig | None = None,
+    metrics: list[str] | None = None,
+    num_labels: int = NUM_LABELS,
 ) -> EvalArtifact:
+    if metrics is None:
+        metrics = read_config(config)["metrics"] if config is not None else ["accuracy", "macro_f1"]
+    unknown = sorted(set(metrics) - SUPPORTED_METRICS)
+    if not metrics or unknown or len(metrics) != len(set(metrics)):
+        raise ValueError("metrics must be a non-empty, unique list of supported metric names")
+
     test_mask = np.array([s == "test" for s in joined.split], dtype=bool)
     x_test = torch.from_numpy(joined.embeddings[test_mask])
     y_true = joined.labels[test_mask]
@@ -47,9 +73,12 @@ def run(
     macro_f1 = float(f1_score(y_true, y_pred, average="macro", zero_division=0))
     num_eval_examples = int(test_mask.sum())
 
-    payload = {
+    all_metrics = {
         "accuracy": accuracy,
         "macro_f1": macro_f1,
+    }
+    payload = {
+        **{name: all_metrics[name] for name in metrics},
         "num_eval_examples": num_eval_examples,
     }
     return EvalArtifact(

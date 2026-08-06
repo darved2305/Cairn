@@ -8,6 +8,7 @@ from __future__ import annotations
 import pandas as pd
 import pyarrow as pa
 
+from cairn.config import TrackedConfig
 from cairn.workload import stage_dataset
 
 
@@ -74,3 +75,15 @@ def test_run_is_deterministic_across_calls() -> None:
     first = stage_dataset.run(raw).parquet_bytes
     second = stage_dataset.run(raw).parquet_bytes
     assert first == second
+
+
+def test_instrumented_config_value_changes_the_real_split() -> None:
+    rows = [
+        {"doc_id": i, "text": f"doc {i}", "target": i % 4, "target_name": "x"} for i in range(12)
+    ]
+    tracked = TrackedConfig({"dataset": {"test_every_nth": 3}})
+    artifact = stage_dataset.run(_raw_bytes(rows), config=tracked.stage("dataset"))
+    out = _read(artifact.parquet_bytes)
+
+    assert set(out.loc[out["split"] == "test", "doc_id"]) == {0, 3, 6, 9}
+    assert tracked.reads("dataset") == {"dataset.test_every_nth": 3}

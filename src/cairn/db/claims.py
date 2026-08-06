@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
 import psycopg
 from psycopg_pool import ConnectionPool
 
+from cairn.db.graph import ArtifactInput, insert_artifact
 from cairn.db.txn import in_txn
 
 LEASE_SECONDS = 45
@@ -198,36 +200,22 @@ def heartbeat(pool: ConnectionPool, work_key: str, owner: str, fence: int) -> bo
 
 
 def complete(
-    pool: ConnectionPool, work_key: str, owner: str, fence: int, artifact: ArtifactRecord
+    pool: ConnectionPool,
+    work_key: str,
+    owner: str,
+    fence: int,
+    artifact: ArtifactRecord,
+    *,
+    inputs: Sequence[ArtifactInput] = (),
 ) -> bool:
-    """Insert the artifact and flip the claim to SUCCEEDED — one transaction,
-    never two, so a crash between them is impossible by construction. The
-    artifact insert is `ON CONFLICT DO NOTHING` on its content-addressed PK,
-    so replaying this call (e.g. after a retry) is a genuine no-op."""
+    """Fence, flip the claim, and insert artifact provenance in one transaction.
+
+    The fenced UPDATE runs first so a dispossessed worker cannot leave even an
+    orphan artifact row. Nothing becomes visible until the transaction commits,
+    so a crash or later insert error still rolls the entire operation back.
+    """
 
     def _tx(cur: psycopg.Cursor) -> bool:
-        cur.execute(
-            """
-            INSERT INTO artifacts
-              (artifact_id, stage, work_key, s3_uri, size_bytes, env_fingerprint,
-               produced_by_run, duration_ms, vcpu, mem_mib, region)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT (artifact_id) DO NOTHING
-            """,
-            (
-                artifact.artifact_id,
-                artifact.stage,
-                artifact.work_key,
-                artifact.s3_uri,
-                artifact.size_bytes,
-                artifact.env_fingerprint,
-                artifact.produced_by_run,
-                artifact.duration_ms,
-                artifact.vcpu,
-                artifact.mem_mib,
-                artifact.region,
-            ),
-        )
         cur.execute(
             """
             UPDATE work_claims
@@ -237,7 +225,13 @@ def complete(
             """,
             (artifact.artifact_id, work_key, owner, fence),
         )
-        return cur.rowcount == 1
+        if cur.rowcount != 1:
+            # A stale owner must not even leave an orphan artifact row. The
+            # UPDATE and graph inserts still commit atomically as one txn,
+            # but fencing is checked before any provenance is written.
+            return False
+        insert_artifact(cur, artifact, inputs)
+        return True
 
     return in_txn(pool, _tx, op="claim.complete")
 

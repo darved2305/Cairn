@@ -9,6 +9,7 @@ dependencies = [
     "psycopg[binary,pool]>=3.2,<4",
     "typer>=0.15",
     "python-dotenv>=1.0",
+    "pyyaml>=6.0",
     "torch>=2.5",
     "sentence-transformers>=3.2",
     "scikit-learn>=1.5",
@@ -29,6 +30,7 @@ dev = [
     "pytest-cov>=6.0",
     "hypothesis>=6.122",
     "pre-commit>=4.0",
+    "types-pyyaml>=6.0",
 ]
 
 [build-system]

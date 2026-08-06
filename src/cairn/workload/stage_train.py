@@ -24,6 +24,7 @@ import pyarrow as pa
 import torch
 from torch import nn
 
+from cairn.config import StageConfig
 from cairn.workload import stage_features
 from cairn.workload.determinism import SEED
 
@@ -33,6 +34,27 @@ NUM_LABELS = 4
 EPOCHS = 12
 LEARNING_RATE = 1e-3
 TRAIN_BATCH_SIZE = 32
+
+
+def read_config(config: StageConfig) -> dict[str, int | float]:
+    values: dict[str, int | float] = {
+        "input_dim": config.get("input_dim", default=INPUT_DIM, expected_type=int),
+        "hidden_dim": config.get("hidden_dim", default=HIDDEN_DIM, expected_type=int),
+        "num_labels": config.get("num_labels", default=NUM_LABELS, expected_type=int),
+        "epochs": config.get("epochs", default=EPOCHS, expected_type=int),
+        "learning_rate": config.get(
+            "learning_rate", default=LEARNING_RATE, expected_type=(int, float)
+        ),
+        "batch_size": config.get("batch_size", default=TRAIN_BATCH_SIZE, expected_type=int),
+    }
+    for key in ("input_dim", "hidden_dim", "num_labels", "epochs", "batch_size"):
+        value = values[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ValueError(f"train.{key} must be a positive integer")
+    learning_rate = values["learning_rate"]
+    if isinstance(learning_rate, bool) or float(learning_rate) <= 0:
+        raise ValueError("train.learning_rate must be positive")
+    return values
 
 
 class Classifier(nn.Module):
@@ -105,14 +127,30 @@ def run_epochs(
     *,
     num_labels: int = NUM_LABELS,
     epochs: int = EPOCHS,
+    input_dim: int = INPUT_DIM,
+    hidden_dim: int = HIDDEN_DIM,
+    learning_rate: float = LEARNING_RATE,
+    batch_size: int = TRAIN_BATCH_SIZE,
 ) -> Iterator[EpochFragment]:
     """Yields one EpochFragment per epoch. Relies on determinism.apply()
     having already seeded torch's global RNG (weight init draws from it at
     Classifier() construction) — this function does not seed anything
     itself beyond the local permutation generator."""
+    if min(num_labels, epochs, input_dim, hidden_dim, batch_size) < 1:
+        raise ValueError(
+            "training dimensions, label count, epochs, and batch size must be positive"
+        )
+    if learning_rate <= 0:
+        raise ValueError("learning_rate must be positive")
+    if x_train.ndim != 2 or x_train.shape[1] != input_dim:
+        actual = x_train.shape[1] if x_train.ndim == 2 else "not-2D"
+        raise ValueError(
+            f"training input dimension is {actual}, configured input_dim is {input_dim}"
+        )
+
     generator = torch.Generator().manual_seed(SEED)
-    model = Classifier(num_labels=num_labels)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+    model = Classifier(input_dim=input_dim, hidden_dim=hidden_dim, num_labels=num_labels)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     loss_fn = nn.CrossEntropyLoss()
 
     x = torch.from_numpy(x_train)
@@ -124,8 +162,8 @@ def run_epochs(
         perm = torch.randperm(n, generator=generator)
         epoch_loss = 0.0
         num_batches = 0
-        for start in range(0, n, TRAIN_BATCH_SIZE):
-            idx = perm[start : start + TRAIN_BATCH_SIZE]
+        for start in range(0, n, batch_size):
+            idx = perm[start : start + batch_size]
             optimizer.zero_grad()
             logits = model(x[idx])
             loss = loss_fn(logits, y[idx])
@@ -152,14 +190,48 @@ class CheckpointArtifact:
 
 
 def run(
-    joined: JoinedData, *, num_labels: int = NUM_LABELS, epochs: int = EPOCHS
+    joined: JoinedData,
+    *,
+    config: StageConfig | None = None,
+    num_labels: int | None = None,
+    epochs: int | None = None,
+    input_dim: int | None = None,
+    hidden_dim: int | None = None,
+    learning_rate: float | None = None,
+    batch_size: int | None = None,
 ) -> CheckpointArtifact:
+    configured = read_config(config) if config is not None else {}
+    num_labels = int(
+        num_labels if num_labels is not None else configured.get("num_labels", NUM_LABELS)
+    )
+    epochs = int(epochs if epochs is not None else configured.get("epochs", EPOCHS))
+    input_dim = int(input_dim if input_dim is not None else configured.get("input_dim", INPUT_DIM))
+    hidden_dim = int(
+        hidden_dim if hidden_dim is not None else configured.get("hidden_dim", HIDDEN_DIM)
+    )
+    learning_rate = float(
+        learning_rate
+        if learning_rate is not None
+        else configured.get("learning_rate", LEARNING_RATE)
+    )
+    batch_size = int(
+        batch_size if batch_size is not None else configured.get("batch_size", TRAIN_BATCH_SIZE)
+    )
     train_mask = np.array([s == "train" for s in joined.split], dtype=bool)
     x_train = joined.embeddings[train_mask]
     y_train = joined.labels[train_mask]
 
     last: EpochFragment | None = None
-    for fragment in run_epochs(x_train, y_train, num_labels=num_labels, epochs=epochs):
+    for fragment in run_epochs(
+        x_train,
+        y_train,
+        num_labels=num_labels,
+        epochs=epochs,
+        input_dim=input_dim,
+        hidden_dim=hidden_dim,
+        learning_rate=learning_rate,
+        batch_size=batch_size,
+    ):
         last = fragment
     assert last is not None, "epochs must be >= 1"
 

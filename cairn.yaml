@@ -1,0 +1,30 @@
+version: 1
+
+data:
+  # Replaced by scripts/vendor_dataset.py with the content digest of the
+  # vendored Parquet snapshot. Keeping the value explicit makes a local plan
+  # honest: it is provisional until the dataset has actually been vendored.
+  snapshot_digest: unvendored-20news-4cat-v1
+
+dataset:
+  test_every_nth: 5
+
+features:
+  model: sentence-transformers/all-MiniLM-L6-v2
+  embedding_dim: 384
+  max_seq_length: 256
+  batch_size: 32
+  shard_count: 3
+
+train:
+  input_dim: 384
+  hidden_dim: 256
+  num_labels: 4
+  epochs: 12
+  learning_rate: 0.001
+  batch_size: 32
+
+eval:
+  metrics:
+    - accuracy
+    - macro_f1

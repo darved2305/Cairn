@@ -8,7 +8,7 @@ actually affect. Built for the CockroachDB × AWS Hackathon — see
 [`PROJECT.md`](PROJECT.md) for the full design and [`PLAN.md`](PLAN.md) for
 the build schedule.
 
-> **Status:** under active construction (day 3 of 13 — see `PLAN.md` §4).
+> **Status:** under active construction (day 4 of 13 — see `PLAN.md` §4).
 > The quickstart below will grow into a 6-command README by D12; today it
 > documents what actually runs.
 
@@ -34,6 +34,19 @@ the build schedule.
   tested against MinIO locally.
 - `cairn/fingerprint/canon.py`, `env.py` — canonical JSON / canonical
   float32 byte encoding and the env fingerprint every work_key depends on.
+- `cairn/config.py` — instrumented, stage-scoped config access. Work keys
+  hash only values the stage really reads; changing `eval.metrics` leaves the
+  other four keys untouched.
+- `cairn/fingerprint/astcanon.py`, `reach.py`, `workkey.py` — comment,
+  formatting, and docstring-invariant AST digests; a conservative first-party
+  call/import graph with hard dynamic-dispatch escape detection; and the
+  versioned work-key composition from `PROJECT.md` §4.2.
+- `cairn/db/graph.py` + migration `0004_causal_graph.sql` — queryable
+  `code_units`/`code_edges` and atomic typed `artifact_inputs` provenance.
+  A stale fenced owner is rejected before it can leave an orphan artifact.
+- `cairn plan` — prints all five per-stage work keys and whether structural
+  reachability is sound. Use `--output json` for automation and
+  `--persist-graph` to populate the live CockroachDB code graph.
 - `scripts/provision_cluster.sh` — stands up a CockroachDB Cloud dev cluster.
 - `scripts/local_cluster.sh` — single-node CockroachDB in Docker, for
   running the integration suite without a Cloud account (PLAN.md §8's
@@ -48,6 +61,7 @@ the build schedule.
 uv sync                                   # install the pinned environment
 ./scripts/local_cluster.sh up             # local CockroachDB in Docker — or provision_cluster.sh for Cloud
 make migrate                              # apply db/migrations/*.sql
+cairn plan                                # print the five causal work keys
 make check                                # lint + typecheck + unit tests (no DB needed)
 make race                                 # 200-iteration duplicate-claim race (needs CAIRN_DATABASE_URL)
 ```

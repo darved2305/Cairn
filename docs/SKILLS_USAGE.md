@@ -33,13 +33,23 @@ HikariCP guidance (`maximumPoolSize = (vCPUs * 4) / pool_instances`,
 task at 2 vCPU doesn't need — and under contention on `work_claims`,
 actively should not have — a large pool racing itself for the same rows.
 
-**Pending (lands with `db/claims.py`, D2).** §6's `SELECT ... FOR UPDATE`
-guidance ("use when optimistic retries are causing thrashing") is the
-basis for locking the contended row in the claim-acquire path before
-branching on its state, instead of a plain re-`SELECT`. PROJECT.md §10
-item 2 records the retry-count delta once the race test exists to measure
-it (target: cut mean `40001` retries per contended claim from ~3.1 to
-~0.4, per the design's stated benchmark).
+**§6 (`SELECT ... FOR UPDATE`) → `src/cairn/db/claims.py::acquire`.** "Use
+when optimistic retries are causing thrashing" is exactly the contended
+branch of `acquire`: every loser in a same-key race would otherwise
+re-`SELECT` the same stale row and pile up `40001`s against each other.
+Locking it before branching on state turns that into a wait instead of
+wasted retries.
+
+**Measured**, 2026-08-07, `tests/integration/test_claims.py::test_race_produces_exactly_one_winner_every_time`,
+200/200 races, single-node CockroachDB (`scripts/local_cluster.sh`):
+**0** `SerializationFailure` retries logged by `db/txn.py` across all 200
+races. `FOR UPDATE` isn't just cutting the retry count here, it's
+eliminating it — the loser blocks on the row lock instead of racing for
+it. This is a local, same-host measurement (both "workers" are threads on
+one box with negligible network RTT between them); it's the number to
+recheck once D7's real cross-region ECS race introduces actual network
+latency between contenders, which is what the ~3.1 → ~0.4 target in
+PROJECT.md §10 item 2 was estimating for.
 
 ## Pending skills (referenced by day, not yet applied)
 

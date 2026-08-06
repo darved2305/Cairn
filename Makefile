@@ -1,8 +1,15 @@
-.PHONY: cluster migrate seed demo race teardown check test lint typecheck fmt
+.PHONY: cluster local-cluster local-cluster-down migrate seed demo race teardown check test test-integration lint typecheck fmt
 
 # Provision (or reuse) the CockroachDB Cloud dev cluster and write .env.
 cluster:
 	./scripts/provision_cluster.sh
+
+# Single-node CockroachDB in Docker — no Cloud account needed, same schema.
+local-cluster:
+	./scripts/local_cluster.sh up
+
+local-cluster-down:
+	./scripts/local_cluster.sh down
 
 # Apply db/migrations/*.sql, in order, tracked in schema_migrations.
 migrate:
@@ -16,7 +23,7 @@ seed:
 demo:
 	uv run cairn run --all
 
-# Two-worker duplicate-claim race, 200 iterations (lands D2).
+# Two-worker duplicate-claim race, 200 iterations. Needs CAIRN_DATABASE_URL.
 race:
 	uv run python scripts/race.py --iterations 200
 
@@ -36,6 +43,10 @@ typecheck:
 
 test:
 	uv run pytest tests/unit tests/property -q
+
+# Needs CAIRN_DATABASE_URL — see `make local-cluster` or `make cluster`.
+test-integration:
+	uv run pytest tests/integration -v
 
 fmt:
 	uv run ruff format src tests scripts

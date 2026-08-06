@@ -1,5 +1,11 @@
 .PHONY: cluster local-cluster local-cluster-down migrate seed demo race teardown check test test-integration lint typecheck fmt
 
+# Every recipe below runs with hash randomization pinned off — workload/
+# determinism.py refuses to run otherwise (PYTHONHASHSEED can only be set
+# before the interpreter starts, never from inside a running process, so
+# this has to happen at the Makefile/container level, not in Python).
+export PYTHONHASHSEED = 0
+
 # Provision (or reuse) the CockroachDB Cloud dev cluster and write .env.
 cluster:
 	./scripts/provision_cluster.sh

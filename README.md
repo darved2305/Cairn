@@ -8,7 +8,7 @@ actually affect. Built for the CockroachDB × AWS Hackathon — see
 [`PROJECT.md`](PROJECT.md) for the full design and [`PLAN.md`](PLAN.md) for
 the build schedule.
 
-> **Status:** under active construction (day 2 of 13 — see `PLAN.md` §4).
+> **Status:** under active construction (day 3 of 13 — see `PLAN.md` §4).
 > The quickstart below will grow into a 6-command README by D12; today it
 > documents what actually runs.
 
@@ -21,13 +21,25 @@ the build schedule.
   Proven with a real 200/200 duplicate-claim race, a real dispossessed-write
   test, and a real takeover test — all against an actual CockroachDB node,
   not mocks (`tests/integration/test_claims.py`).
-- `db/migrations/0001_init.sql`, `0002_claims.sql` — schema for
-  environments, artifacts, artifact_inputs, work_claims, runs, and
-  ownership_transfers.
+- `db/migrations/0001_init.sql`..`0003_fragments.sql` — schema for
+  environments, artifacts, artifact_inputs, work_claims, runs,
+  ownership_transfers, and run_fragments.
+- `cairn/workload/` — the real five-stage pipeline (env, dataset, features,
+  checkpoint, eval): 20 Newsgroups + `all-MiniLM-L6-v2` + a 2-layer MLP,
+  fragmented (features by shard, checkpoint by epoch). Proven
+  bit-identical across 3 real runs (`tests/integration/test_determinism.py`)
+  and end-to-end through real S3-compatible storage
+  (`tests/integration/test_pipeline_e2e.py`).
+- `cairn/storage/s3.py` — content-addressed put/get and fragment IO, real
+  tested against MinIO locally.
+- `cairn/fingerprint/canon.py`, `env.py` — canonical JSON / canonical
+  float32 byte encoding and the env fingerprint every work_key depends on.
 - `scripts/provision_cluster.sh` — stands up a CockroachDB Cloud dev cluster.
 - `scripts/local_cluster.sh` — single-node CockroachDB in Docker, for
   running the integration suite without a Cloud account (PLAN.md §8's
   documented fallback path).
+- `scripts/vendor_dataset.py` — one-time fetch of the 20 Newsgroups
+  4-category corpus into S3 (`data/DATASET.md`).
 - `scripts/race.py` — the `make race` duplicate-claim race driver.
 
 ## Local setup

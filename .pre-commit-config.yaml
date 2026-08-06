@@ -15,7 +15,16 @@ repos:
     rev: v1.14.1
     hooks:
       - id: mypy
-        additional_dependencies: ["psycopg[binary,pool]>=3.2"]
+        # Mirrors pyproject.toml's [project.dependencies] — mypy's own
+        # pre-commit hook runs in an isolated venv that only sees what's
+        # listed here, so an untyped/absent package here means false
+        # "module not found" errors regardless of the overrides in
+        # pyproject.toml's [[tool.mypy.overrides]].
+        additional_dependencies:
+          - "psycopg[binary,pool]>=3.2"
+          - "torch>=2.5"
+          - "numpy>=2.0"
+          - "pandas>=2.2"
         args: [--config-file=pyproject.toml]
         files: ^src/
 

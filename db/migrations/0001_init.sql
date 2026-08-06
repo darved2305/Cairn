@@ -60,8 +60,9 @@ CREATE TABLE work_claims (
   CHECK (state <> 'SUCCEEDED' OR artifact_id IS NOT NULL)
 );
 
--- ownership_transfers (audit trail for takeovers) and run_fragments
--- (crash-resume checkpoints) land in 0002_claims.sql alongside db/claims.py (D2).
+-- ownership_transfers (audit trail for takeovers) lands in 0002_claims.sql
+-- alongside db/claims.py; run_fragments (crash-resume checkpoints) lands
+-- in 0003_fragments.sql alongside the workload stages that fragment.
 
 CREATE TABLE runs (
   run_id       UUID PRIMARY KEY,

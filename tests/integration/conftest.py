@@ -1,8 +1,9 @@
-"""Shared fixtures for tests that need a real CockroachDB cluster.
+"""Shared fixtures for tests that need real external dependencies: a live
+CockroachDB cluster, or the real MiniLM model.
 
-Nothing in tests/integration/ mocks the database — see PLAN.md §5's
-anti-simulation rule. If there's no live cluster to test against, these
-tests skip cleanly instead of faking a result.
+Nothing in tests/integration/ mocks these — see PLAN.md §5's anti-simulation
+rule. If a dependency isn't available, these tests skip cleanly instead of
+faking a result.
 """
 
 from __future__ import annotations
@@ -26,3 +27,21 @@ def pool() -> Iterator[ConnectionPool]:
     p = get_pool()
     yield p
     close_pool()
+
+
+@pytest.fixture(scope="session")
+def warm_embedding_model() -> None:
+    """Load (and HF-cache) the MiniLM model *before* any test applies
+    workload.determinism's RLIMIT_AS ceiling.
+
+    In production the model is vendored into the image at build time
+    (PROJECT.md §5.2) — the running container never downloads it, so the
+    memory ceiling only ever has to bound *inference*, not a network
+    fetch plus a Rust download-accelerator's own buffers. Test envs don't
+    have that vendoring step, so any test that both calls
+    determinism.apply() and touches stage_features must depend on this
+    fixture first, or it's measuring a memory profile production never has.
+    """
+    from cairn.workload import stage_features
+
+    stage_features._get_model(stage_features.MAX_SEQ_LENGTH)

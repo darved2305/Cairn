@@ -44,6 +44,13 @@ class TrackedConfig:
             raise ConfigError(f"config {source} must contain a mapping at its root")
         return cls(parsed)
 
+    def to_dict(self) -> dict[str, Any]:
+        """A deep copy of the raw config data — for building a mutated
+        variant (e.g. `agent/loop.py`'s REMEDIATE_AND_REPLAN applying a
+        remediation's changed keys), not for reading values directly;
+        reads that should be causally tracked still go through `.get()`."""
+        return copy.deepcopy(self._data)
+
     def stage(self, name: str, *, record_as: str | None = None) -> StageConfig:
         if not name or "." in name:
             raise ConfigError("stage name must be a non-empty top-level key")

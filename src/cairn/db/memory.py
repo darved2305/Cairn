@@ -393,6 +393,42 @@ def record_remediation(pool: ConnectionPool, remediation: Remediation) -> uuid.U
     return in_txn(pool, _tx, op="memory.record_remediation")
 
 
+def latest_successful_remediation(
+    pool: ConnectionPool, signature_id: uuid.UUID
+) -> Remediation | None:
+    """The full remediation row (with actual from/to values), not just the
+    `causal_keys` frozenset `tier()`'s `Match` carries — REMEDIATE_AND_REPLAN
+    needs the real `to_value`s to mutate a config, not merely the key names."""
+
+    def _tx(cur: psycopg.Cursor) -> Remediation | None:
+        cur.execute(
+            """
+            SELECT changed_keys, rationale, verified_run_id, succeeded
+              FROM remediations
+             WHERE signature_id = %s AND succeeded
+             ORDER BY created_at DESC LIMIT 1
+            """,
+            (signature_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        changed_keys_json, rationale, verified_run_id, succeeded = row
+        changed_keys = [
+            ChangedKey(key=entry["key"], from_value=entry["from"], to_value=entry["to"])
+            for entry in changed_keys_json
+        ]
+        return Remediation(
+            signature_id=signature_id,
+            changed_keys=changed_keys,
+            rationale=rationale,
+            verified_run_id=verified_run_id,
+            succeeded=succeeded,
+        )
+
+    return in_txn(pool, _tx, op="memory.latest_successful_remediation")
+
+
 @dataclass(frozen=True)
 class VectorIndexStatus:
     active: bool

@@ -183,6 +183,54 @@ def persist_code_graph(
     return in_txn(pool, _tx, op="graph.persist_code_graph")
 
 
+@dataclass(frozen=True)
+class ArtifactRow:
+    artifact_id: str
+    stage: str
+    work_key: str
+    s3_uri: str
+    env_fingerprint: str
+
+
+def get_artifact(pool: ConnectionPool, artifact_id: str) -> ArtifactRow | None:
+    """One artifact's identifying columns, by id — used by agent/loop.py to
+    resolve a `claims.acquire` reuse hit or a `subscribe` adoption into an
+    S3 location without duplicating the query at every call site."""
+
+    def _tx(cur: psycopg.Cursor) -> ArtifactRow | None:
+        cur.execute(
+            "SELECT artifact_id, stage, work_key, s3_uri, env_fingerprint "
+            "FROM artifacts WHERE artifact_id=%s",
+            (artifact_id,),
+        )
+        row = cur.fetchone()
+        return ArtifactRow(*row) if row else None
+
+    return in_txn(pool, _tx, op="graph.get_artifact")
+
+
+def latest_succeeded_artifact(pool: ConnectionPool, stage: str) -> ArtifactRow | None:
+    """The most recent, non-quarantined artifact for a stage, regardless of
+    work_key — the reuse-via-probe candidate agent/loop.py evaluates when
+    an exact work_key match (identity reuse) isn't available."""
+
+    def _tx(cur: psycopg.Cursor) -> ArtifactRow | None:
+        cur.execute(
+            """
+            SELECT artifact_id, stage, work_key, s3_uri, env_fingerprint
+              FROM artifacts
+             WHERE stage=%s AND quarantined_at IS NULL
+             ORDER BY created_at DESC
+             LIMIT 1
+            """,
+            (stage,),
+        )
+        row = cur.fetchone()
+        return ArtifactRow(*row) if row else None
+
+    return in_txn(pool, _tx, op="graph.latest_succeeded_artifact")
+
+
 def load_artifact_inputs(pool: ConnectionPool, artifact_id: str) -> list[ArtifactInput]:
     def _tx(cur: psycopg.Cursor) -> list[ArtifactInput]:
         cur.execute(

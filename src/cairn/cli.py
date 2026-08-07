@@ -12,16 +12,16 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-import psycopg
 import typer
-from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
+from cairn.agent.loop import Escalation, Refusal, run_pipeline
 from cairn.config import ConfigError, TrackedConfig
 from cairn.db import claims
+from cairn.db.contradictions import unquarantine as unquarantine_artifact
+from cairn.db.environments import ensure_environment
 from cairn.db.graph import persist_code_graph
 from cairn.db.pool import close_pool, get_pool
-from cairn.db.txn import in_txn
 from cairn.planner import PipelinePlan, plan_pipeline
 from cairn.workload.stage_env import EnvManifest
 from cairn.workload.stage_env import run as capture_environment
@@ -158,24 +158,97 @@ def claim_demo_command(
         close_pool()
 
 
-def _ensure_environment(pool: ConnectionPool, environment: EnvManifest) -> None:
-    def _tx(cur: psycopg.Cursor) -> None:
-        cur.execute(
-            """
-            INSERT INTO environments (env_fingerprint, image_digest, python_version, deps, torch_threads)
-            VALUES (%s,%s,%s,%s,%s)
-            ON CONFLICT (env_fingerprint) DO NOTHING
-            """,
-            (
-                environment.env_fingerprint,
-                environment.image_digest,
-                environment.python_version,
-                Jsonb(environment.deps),
-                environment.torch_threads,
-            ),
-        )
+@app.command("run")
+def run_command(
+    stage: Annotated[
+        str, typer.Argument(help="Target stage: env, dataset, features, checkpoint, or eval.")
+    ] = "eval",
+    all_stages: Annotated[
+        bool, typer.Option("--all", help="Alias for `stage=eval` — runs the whole DAG.")
+    ] = False,
+    config_path: Annotated[
+        Path, typer.Option("--config", exists=True, dir_okay=False, readable=True)
+    ] = Path("cairn.yaml"),
+    source_root: Annotated[
+        Path, typer.Option("--source-root", exists=True, file_okay=False, readable=True)
+    ] = Path("src"),
+    bucket: Annotated[str, typer.Option("--bucket", envvar="CAIRN_S3_BUCKET")] = "cairn-dev",
+    owner: Annotated[str | None, typer.Option("--owner", help="Defaults to hostname-pid.")] = None,
+    region: Annotated[str, typer.Option("--region")] = "us-east-1",
+    approval_usd: Annotated[
+        float, typer.Option("--approval-usd", envvar="CAIRN_APPROVAL_USD")
+    ] = 0.50,
+) -> None:
+    """The agent loop (PROJECT.md §6.4): perceive, recall, decide, act,
+    learn — for real, against the live cluster and real S3 storage. Exits
+    non-zero on REFUSE_DOOMED/REFUSE_DUPLICATE (2) or ESCALATE (3), the
+    same way `cairn plan` exits non-zero on a doomed plan, so this is
+    usable as a CI gate."""
 
-    in_txn(pool, _tx, op="cli.ensure_environment")
+    target_stage = "eval" if all_stages else stage
+    host = socket.gethostname()
+    resolved_owner = owner or f"{host}-{os.getpid()}"
+    pool = get_pool()
+    try:
+        config = TrackedConfig.load(config_path)
+        outcomes = run_pipeline(
+            pool,
+            config=config,
+            source_root=str(source_root),
+            bucket=bucket,
+            owner=resolved_owner,
+            host=host,
+            region=region,
+            target_stage=target_stage,
+            approval_usd=approval_usd,
+        )
+        for outcome in outcomes:
+            typer.echo(
+                f"{outcome.stage:<11} {outcome.action.value:<10} work_key={outcome.work_key} "
+                f"artifact={outcome.artifact.artifact_id if outcome.artifact else '-'} "
+                f"({outcome.detail})"
+            )
+    except Refusal as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    except Escalation as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=3) from exc
+    except (ConfigError, ValueError) as exc:
+        typer.echo(f"run failed: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    finally:
+        close_pool()
+
+
+@app.command("unquarantine")
+def unquarantine_command(
+    artifact_id: Annotated[str, typer.Argument(help="The quarantined artifact_id to clear.")],
+    reason: Annotated[str, typer.Option("--reason", help="Required audit trail.")],
+) -> None:
+    """PROJECT.md §6.5: quarantine is one-way except through this explicit,
+    audited human override."""
+
+    pool = get_pool()
+    try:
+        cleared = unquarantine_artifact(pool, artifact_id, reason)
+    finally:
+        close_pool()
+    if not cleared:
+        typer.echo(f"artifact_id={artifact_id!r} was not quarantined", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"unquarantined artifact_id={artifact_id}")
+
+
+def _ensure_environment(pool: ConnectionPool, environment: EnvManifest) -> None:
+    ensure_environment(
+        pool,
+        env_fingerprint=environment.env_fingerprint,
+        image_digest=environment.image_digest,
+        python_version=environment.python_version,
+        deps=environment.deps,
+        torch_threads=environment.torch_threads,
+    )
 
 
 def _persist(result: PipelinePlan) -> None:

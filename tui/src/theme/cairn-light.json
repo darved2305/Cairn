@@ -1,0 +1,22 @@
+{
+  "name": "cairn-light",
+  "colors": {
+    "stone": "#6B675F",
+    "bone": "#2A2822",
+    "gold": "#96702F",
+    "cyan": "#1D7A94",
+    "violet": "#6A4FB0",
+    "green": "#357A54",
+    "warning": "#8A6412",
+    "error": "#B23A44",
+    "panel": "#EDEAE2",
+    "panelPending": "#E6E1F0",
+    "panelSuccess": "#E1EFE6",
+    "panelError": "#F3E1E2",
+    "selected": "#DCD6C8",
+    "userMessageBg": "#E4DFD3",
+    "muted": "#8A867D",
+    "dim": "#A6A296",
+    "background": "#FAF8F3"
+  }
+}

@@ -1,4 +1,4 @@
-.PHONY: cluster local-cluster local-cluster-down migrate seed demo race teardown check test test-integration lint typecheck fmt
+.PHONY: cluster local-cluster local-cluster-down migrate seed demo race teardown check test test-integration lint typecheck fmt tui tui-test tui-check
 
 # Every recipe below runs with hash randomization pinned off — workload/
 # determinism.py refuses to run otherwise (PYTHONHASHSEED can only be set
@@ -57,3 +57,15 @@ test-integration:
 fmt:
 	uv run ruff format src tests scripts
 	uv run ruff check --fix src tests scripts
+
+# Build the interactive terminal (tui/) — `cairn` (bare, no subcommand,
+# TTY stdout) launches tui/dist/index.js as a subprocess. Run once after
+# cloning, and again after changing anything under tui/src.
+tui:
+	cd tui && npm install && npm run build
+
+tui-check:
+	cd tui && npm run typecheck
+
+tui-test:
+	cd tui && npm test

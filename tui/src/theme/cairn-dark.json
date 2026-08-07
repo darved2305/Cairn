@@ -1,0 +1,22 @@
+{
+  "name": "cairn-dark",
+  "colors": {
+    "stone": "#94908A",
+    "bone": "#D8D1C4",
+    "gold": "#D6A85F",
+    "cyan": "#63C5DA",
+    "violet": "#A88BE8",
+    "green": "#78C89B",
+    "warning": "#D8AE64",
+    "error": "#E26D75",
+    "panel": "#232329",
+    "panelPending": "#282832",
+    "panelSuccess": "#263129",
+    "panelError": "#382629",
+    "selected": "#34343E",
+    "userMessageBg": "#2C2C33",
+    "muted": "#777780",
+    "dim": "#56565F",
+    "background": "#1A1A1F"
+  }
+}

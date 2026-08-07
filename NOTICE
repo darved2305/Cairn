@@ -1,0 +1,63 @@
+Cairn
+Copyright the Cairn contributors.
+
+Licensed under the Apache License, Version 2.0 (see LICENSE at the repo root).
+
+This product includes third-party software distributed under other licenses,
+listed below. Inclusion of a dependency here does not change Cairn's own
+Apache-2.0 license — it documents what Cairn links against or adapts.
+
+--------------------------------------------------------------------------------
+
+tui/ — Cairn's interactive terminal
+
+@earendil-works/pi-tui
+  License: MIT
+  Source: https://github.com/earendil-works/pi (packages/tui)
+  Author: Mario Zechner
+  Used as: a direct npm dependency of tui/, unmodified — Cairn's terminal
+  renderer, differential-rendering core, Editor/Markdown/SelectList/
+  SettingsList/Loader components, keybinding manager, and terminal I/O layer
+  all come from this package. Cairn's own code in tui/src/ builds Cairn-
+  specific components (theme, animation clock, the Archivist mark, the
+  causal-field startup sequence, domain tool panels for probes/claims/
+  memory/decisions, the slash-command registry, and the Python event
+  bridge) on top of it. No pi-tui source was copied or modified; it is
+  consumed as a package dependency, and its MIT license terms continue to
+  apply to that package's own source.
+
+  MIT License terms (as published by the package):
+  Permission is hereby granted, free of charge, to any person obtaining a
+  copy of this software and associated documentation files, to deal in
+  the software without restriction, including without limitation the
+  rights to use, copy, modify, merge, publish, distribute, sublicense,
+  and/or sell copies of the software, subject to inclusion of the above
+  copyright and permission notice in all copies or substantial portions
+  of the software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+  ANY KIND.
+
+marked (transitive dependency of @earendil-works/pi-tui)
+  License: MIT
+  Source: https://github.com/markedjs/marked
+
+get-east-asian-width (transitive dependency of @earendil-works/pi-tui)
+  License: MIT
+  Source: https://github.com/sindresorhus/get-east-asian-width
+
+--------------------------------------------------------------------------------
+
+data/ — vendored dataset snapshot
+
+20 Newsgroups (4-category subset)
+  A long-standing public research corpus, redistributed by scikit-learn.
+  See data/DATASET.md for provenance and license notes.
+
+sentence-transformers/all-MiniLM-L6-v2
+  License: Apache-2.0
+  Source: https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2
+
+--------------------------------------------------------------------------------
+
+.agents/skills/cockroachdb-skills
+  License: Apache-2.0
+  Source: https://github.com/cockroachlabs/cockroachdb-skills

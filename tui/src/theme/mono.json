@@ -1,0 +1,22 @@
+{
+  "name": "mono",
+  "colors": {
+    "stone": "#B0B0B0",
+    "bone": "#FFFFFF",
+    "gold": "#FFFFFF",
+    "cyan": "#FFFFFF",
+    "violet": "#FFFFFF",
+    "green": "#FFFFFF",
+    "warning": "#FFFFFF",
+    "error": "#FFFFFF",
+    "panel": "#000000",
+    "panelPending": "#000000",
+    "panelSuccess": "#000000",
+    "panelError": "#000000",
+    "selected": "#FFFFFF",
+    "userMessageBg": "#000000",
+    "muted": "#808080",
+    "dim": "#606060",
+    "background": "#000000"
+  }
+}

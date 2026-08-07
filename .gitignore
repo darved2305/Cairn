@@ -14,8 +14,12 @@ __pycache__/
 dist/
 build/
 
-# node (console frontend, added later)
+# node (console frontend, tui/ TypeScript TUI)
 node_modules/
+tui/node_modules/
+tui/dist/
+console/frontend/node_modules/
+console/frontend/dist/
 
 # terraform (added later)
 .terraform/

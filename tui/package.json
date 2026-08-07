@@ -1,0 +1,30 @@
+{
+  "name": "@cairn/tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cairn's interactive terminal — causal reuse memory for expensive compute.",
+  "license": "Apache-2.0",
+  "bin": {
+    "cairn-tui": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@earendil-works/pi-tui": "^0.84.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

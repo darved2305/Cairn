@@ -72,6 +72,38 @@ make race                                 # 200-iteration duplicate-claim race (
 for the real Cloud cluster — see `PLAN.md` §5 for why no test in this repo
 mocks the database for anything claiming to be an integration test.
 
+## Interactive terminal (`cairn`)
+
+Running `cairn` with no subcommand and a real terminal attached launches an
+interactive TUI (`tui/`) built on
+[`@earendil-works/pi-tui`](https://github.com/earendil-works/pi) (MIT — see
+[`NOTICE`](NOTICE)). Every other invocation — a real subcommand, or bare
+`cairn` piped/redirected to a non-TTY — is unaffected and behaves exactly as
+it always has.
+
+The TUI is a TypeScript process, spawned by the Python `cairn` entrypoint. It
+never queries CockroachDB directly and never scrapes stdout: it reads a
+versioned NDJSON event stream that the Python side writes at real state
+transitions (`src/cairn/obs/events.py`), and it drives real work by spawning
+`cairn <subcommand>` itself for `/run`, `/plan`, `/explain`, `/memory`, and
+`/doctor`.
+
+Build it once (and again after changing anything under `tui/src/`):
+
+```bash
+make tui              # cd tui && npm install && npm run build
+cairn                 # launches the TUI
+```
+
+Requires Node.js ≥ 22.19. If `tui/dist/index.js` hasn't been built yet, or
+`node` isn't on `PATH`, `cairn` prints a clear error and exits — it never
+launches a broken TUI or silently falls back to something else.
+
+```bash
+make tui-check         # tsc --noEmit
+make tui-test          # the TypeScript unit/render-width test suite
+```
+
 ## License
 
 Apache-2.0 — see [`LICENSE`](LICENSE).

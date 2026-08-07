@@ -24,6 +24,7 @@ import psycopg
 from psycopg_pool import ConnectionPool
 
 from cairn.db.txn import in_txn
+from cairn.obs.events import emit_event
 from cairn.obs.metrics import emit_metric
 
 
@@ -118,7 +119,39 @@ def record_contradiction(
     # one point on a replayed-then-committed attempt is harmless; a stdout
     # write inside a txn that gets retried would double-emit instead.
     emit_metric("QuarantineEvents", quarantined_count)
+    emit_event(
+        "artifact.quarantined",
+        {
+            "artifact_id": artifact_id,
+            "contradiction_id": str(contradiction.contradiction_id),
+            "evidence": evidence,
+            "quarantined_count": quarantined_count,
+        },
+        run_id=str(contradicting_run),
+    )
     return contradiction
+
+
+def contradictions_for_artifact(pool: ConnectionPool, artifact_id: str) -> list[Contradiction]:
+    """`cairn explain`'s contradiction-history section — every contradiction
+    row (real quarantine events and their `unquarantine` reversals alike,
+    see `unquarantine`'s own docstring) ever recorded against this exact
+    artifact_id, newest first."""
+
+    def _tx(cur: psycopg.Cursor) -> list[Contradiction]:
+        cur.execute(
+            """
+            SELECT contradiction_id, artifact_id, contradicting_run, evidence,
+                   quarantined, created_at
+              FROM contradictions
+             WHERE artifact_id = %s
+             ORDER BY created_at DESC
+            """,
+            (artifact_id,),
+        )
+        return [Contradiction(*row) for row in cur.fetchall()]
+
+    return in_txn(pool, _tx, op="contradictions.contradictions_for_artifact")
 
 
 def unquarantine(pool: ConnectionPool, artifact_id: str, reason: str) -> bool:
@@ -157,4 +190,7 @@ def unquarantine(pool: ConnectionPool, artifact_id: str, reason: str) -> bool:
         )
         return True
 
-    return in_txn(pool, _tx, op="contradictions.unquarantine")
+    cleared = in_txn(pool, _tx, op="contradictions.unquarantine")
+    if cleared:
+        emit_event("artifact.unquarantined", {"artifact_id": artifact_id, "reason": reason})
+    return cleared

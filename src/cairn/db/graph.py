@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
@@ -245,6 +246,108 @@ def load_artifact_inputs(pool: ConnectionPool, artifact_id: str) -> list[Artifac
         return [ArtifactInput(*row) for row in cur.fetchall()]
 
     return in_txn(pool, _tx, op="graph.load_artifact_inputs")
+
+
+@dataclass(frozen=True)
+class ArtifactDetails:
+    """Everything `cairn explain <artifact_id>` and the TUI's Explain panel
+    need in one read — the full artifacts row plus its typed input edges,
+    so callers don't have to compose get_artifact + load_artifact_inputs
+    themselves for what is always used together."""
+
+    artifact_id: str
+    stage: str
+    work_key: str
+    s3_uri: str
+    size_bytes: int
+    env_fingerprint: str
+    produced_by_run: UUID
+    duration_ms: int
+    vcpu: float
+    mem_mib: int
+    region: str
+    quarantined_at: datetime | None
+    created_at: datetime
+    inputs: list[ArtifactInput]
+
+
+def describe_artifact(pool: ConnectionPool, artifact_id: str) -> ArtifactDetails | None:
+    def _tx(cur: psycopg.Cursor) -> ArtifactDetails | None:
+        cur.execute(
+            """
+            SELECT artifact_id, stage, work_key, s3_uri, size_bytes, env_fingerprint,
+                   produced_by_run, duration_ms, vcpu, mem_mib, region,
+                   quarantined_at, created_at
+              FROM artifacts WHERE artifact_id=%s
+            """,
+            (artifact_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        cur.execute(
+            """
+            SELECT input_kind, input_ref, input_digest
+              FROM artifact_inputs
+             WHERE artifact_id=%s
+             ORDER BY input_kind, input_ref
+            """,
+            (artifact_id,),
+        )
+        inputs = [ArtifactInput(*input_row) for input_row in cur.fetchall()]
+        (
+            aid,
+            stage,
+            work_key,
+            s3_uri,
+            size_bytes,
+            env_fingerprint,
+            produced_by_run,
+            duration_ms,
+            vcpu,
+            mem_mib,
+            region,
+            quarantined_at,
+            created_at,
+        ) = row
+        return ArtifactDetails(
+            artifact_id=aid,
+            stage=stage,
+            work_key=work_key,
+            s3_uri=s3_uri,
+            size_bytes=size_bytes,
+            env_fingerprint=env_fingerprint,
+            produced_by_run=produced_by_run,
+            duration_ms=duration_ms,
+            vcpu=float(vcpu),
+            mem_mib=mem_mib,
+            region=region,
+            quarantined_at=quarantined_at,
+            created_at=created_at,
+            inputs=inputs,
+        )
+
+    return in_txn(pool, _tx, op="graph.describe_artifact")
+
+
+def downstream_artifacts(pool: ConnectionPool, artifact_id: str) -> list[str]:
+    """Artifacts whose `artifact_inputs` cites `artifact_id` directly as an
+    'upstream' input — one hop, matching db/contradictions.py's
+    `_downstream_of` (the same edge shape); the CLI/TUI explain surface
+    shows direct dependents, not a transitive closure."""
+
+    def _tx(cur: psycopg.Cursor) -> list[str]:
+        cur.execute(
+            """
+            SELECT DISTINCT artifact_id FROM artifact_inputs
+             WHERE input_kind = 'upstream' AND input_ref = %s
+             ORDER BY artifact_id
+            """,
+            (artifact_id,),
+        )
+        return [row[0] for row in cur.fetchall()]
+
+    return in_txn(pool, _tx, op="graph.downstream_artifacts")
 
 
 def _validate_inputs(inputs: Sequence[ArtifactInput]) -> None:

@@ -5,33 +5,156 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import socket
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
 from typing import Annotated
 
+import psycopg
 import typer
 from psycopg_pool import ConnectionPool
 
 from cairn.agent.loop import Escalation, Refusal, run_pipeline
 from cairn.config import ConfigError, TrackedConfig
 from cairn.db import claims
+from cairn.db.contradictions import Contradiction
+from cairn.db.contradictions import contradictions_for_artifact as _contradictions_for_artifact
 from cairn.db.contradictions import unquarantine as unquarantine_artifact
+from cairn.db.decisions import DecisionRecord
+from cairn.db.decisions import decisions_for_artifact as _decisions_for_artifact
+from cairn.db.decisions import latest_refusal as _latest_refusal
 from cairn.db.environments import ensure_environment
-from cairn.db.graph import persist_code_graph
+from cairn.db.graph import (
+    ArtifactDetails,
+    describe_artifact,
+    downstream_artifacts,
+    persist_code_graph,
+)
+from cairn.db.memory import search_text, vector_index_status
 from cairn.db.pool import close_pool, get_pool
+from cairn.db.txn import in_txn
+from cairn.embeddings import default_provider
+from cairn.obs.events import emit_event
 from cairn.planner import PipelinePlan, plan_pipeline
 from cairn.workload.stage_env import EnvManifest
 from cairn.workload.stage_env import run as capture_environment
 
-app = typer.Typer(no_args_is_help=True, help="Causal reuse memory for expensive compute.")
+app = typer.Typer(help="Causal reuse memory for expensive compute.")
+memory_app = typer.Typer(help="Query negative computational memory directly — PROJECT.md §7.1.")
+app.add_typer(memory_app, name="memory")
+
+# Mirrors this repo's own cairn.yaml (PLAN.md §1's stage registry shape) —
+# `init` gives a fresh repo a starting point that round-trips through
+# TrackedConfig.load, not a minimal/empty stub that would fail plan/run.
+_INIT_TEMPLATE = """\
+version: 1
+
+data:
+  # Set by scripts/vendor_dataset.py to the content digest of the vendored
+  # dataset snapshot. Left explicit and provisional here so a fresh `cairn
+  # plan` is honest about not having vendored data yet.
+  snapshot_digest: unvendored-dataset-v1
+
+dataset:
+  test_every_nth: 5
+
+features:
+  model: sentence-transformers/all-MiniLM-L6-v2
+  embedding_dim: 384
+  max_seq_length: 256
+  batch_size: 32
+  shard_count: 3
+
+train:
+  input_dim: 384
+  hidden_dim: 256
+  num_labels: 4
+  epochs: 12
+  learning_rate: 0.001
+  batch_size: 32
+
+eval:
+  metrics:
+    - accuracy
+    - macro_f1
+"""
 
 
-@app.callback()
-def main() -> None:
-    """Causal reuse memory for expensive compute."""
+@app.callback(invoke_without_command=True)
+def main(ctx: typer.Context) -> None:
+    """Causal reuse memory for expensive compute.
+
+    Bare `cairn` (no subcommand) launches the interactive terminal when
+    stdout is a TTY — every other invocation (a real subcommand, or bare
+    `cairn` piped/redirected) is completely unaffected: this callback
+    only acts when `ctx.invoked_subcommand` is None, and even then it
+    falls back to printing help rather than launching a TUI into a
+    non-interactive pipe (Part B §41's amendment)."""
+
+    if ctx.invoked_subcommand is not None:
+        return
+    if not sys.stdout.isatty():
+        typer.echo(ctx.get_help())
+        return
+    _launch_tui()
+
+
+def _launch_tui() -> None:
+    """Spawn the built Node TUI (tui/dist/index.js) as a subprocess with
+    inherited stdio, so raw terminal I/O passes straight through, and
+    forward its exit code as our own. `CAIRN_PYTHON` tells the TUI which
+    interpreter to re-invoke for the real `cairn <subcommand>` calls it
+    makes as it runs (tui/src/connection/subprocess.ts) — the same venv
+    this bare invocation is already running under, not a PATH lookup."""
+
+    node_path = shutil.which("node")
+    if node_path is None:
+        typer.echo(
+            "cairn: the interactive terminal needs Node.js (node not found on PATH).",
+            err=True,
+        )
+        typer.echo(
+            "Run a specific subcommand instead, e.g. `cairn plan` or `cairn doctor`.", err=True
+        )
+        raise typer.Exit(code=1)
+
+    entry = _resolve_tui_entry()
+    if entry is None:
+        typer.echo(
+            "cairn: the interactive terminal isn't built yet. "
+            "Run `cd tui && npm install && npm run build`.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+
+    env = dict(os.environ)
+    env["CAIRN_PYTHON"] = sys.executable
+    completed = subprocess.run([node_path, str(entry)], env=env, check=False)
+    raise typer.Exit(code=completed.returncode)
+
+
+def _resolve_tui_entry() -> Path | None:
+    """Bundled location first (an installed package ships
+    `cairn/_tui/dist/index.js` — see tui/README.md's packaging step),
+    falling back to this repo's own `tui/dist/index.js` for local
+    development straight from a git checkout. `CAIRN_TUI_ENTRY` is an
+    explicit override for both cases, mainly for tests."""
+
+    override = os.environ.get("CAIRN_TUI_ENTRY")
+    if override:
+        path = Path(override)
+        return path if path.is_file() else None
+    bundled = Path(__file__).resolve().parent / "_tui" / "dist" / "index.js"
+    if bundled.is_file():
+        return bundled
+    dev = Path(__file__).resolve().parents[2] / "tui" / "dist" / "index.js"
+    if dev.is_file():
+        return dev
+    return None
 
 
 @app.command("plan")
@@ -51,6 +174,7 @@ def plan_command(
 
     if output not in {"table", "json"}:
         raise typer.BadParameter("must be 'table' or 'json'", param_hint="--output")
+    emit_event("plan.started", {"config_path": str(config_path), "source_root": str(source_root)})
     try:
         config = TrackedConfig.load(config_path)
         environment = capture_environment()
@@ -65,6 +189,19 @@ def plan_command(
 
     if persist_graph:
         _persist(result)
+    emit_event(
+        "plan.completed",
+        {
+            "stages": [
+                {
+                    "stage": s.stage,
+                    "work_key": s.work_key.value,
+                    "structurally_sound": s.structurally_sound,
+                }
+                for s in result.stages
+            ]
+        },
+    )
     if output == "json":
         typer.echo(json.dumps(_as_json(result), sort_keys=True, indent=2))
     else:
@@ -240,6 +377,412 @@ def unquarantine_command(
     typer.echo(f"unquarantined artifact_id={artifact_id}")
 
 
+@app.command("init")
+def init_command(
+    config_path: Annotated[
+        Path, typer.Option("--config", help="Where to write the scaffolded config.")
+    ] = Path("cairn.yaml"),
+    force: Annotated[
+        bool, typer.Option("--force", help="Overwrite an existing config file.")
+    ] = False,
+) -> None:
+    """Scaffold a cairn.yaml stage registry (PROJECT.md §7.1)."""
+
+    if config_path.exists() and not force:
+        typer.echo(f"{config_path} already exists — pass --force to overwrite", err=True)
+        raise typer.Exit(code=1)
+    config_path.write_text(_INIT_TEMPLATE, encoding="utf-8")
+    try:
+        TrackedConfig.load(config_path)
+    except ConfigError as exc:  # pragma: no cover - _INIT_TEMPLATE is fixed and valid
+        typer.echo(f"init wrote an invalid config: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(f"wrote {config_path}")
+
+
+@app.command("explain")
+def explain_command(
+    artifact_id: Annotated[str, typer.Argument(help="Artifact to explain.")],
+    output: Annotated[str, typer.Option("--output", help="table or json")] = "table",
+) -> None:
+    """Full provenance and decision chain for one artifact — PROJECT.md §7.1:
+    the artifact row, its input edges, direct downstream artifacts, every
+    decision that cites it, and its contradiction history. Exits 1 if the
+    artifact_id is unknown."""
+
+    if output not in {"table", "json"}:
+        raise typer.BadParameter("must be 'table' or 'json'", param_hint="--output")
+
+    pool = get_pool()
+    try:
+        details = describe_artifact(pool, artifact_id)
+        if details is None:
+            emit_event("explain.not_found", {"artifact_id": artifact_id})
+            typer.echo(f"unknown artifact_id={artifact_id!r}", err=True)
+            raise typer.Exit(code=1)
+        downstream = downstream_artifacts(pool, artifact_id)
+        decisions = _decisions_for_artifact(pool, artifact_id)
+        contradictions = _contradictions_for_artifact(pool, artifact_id)
+    finally:
+        close_pool()
+
+    emit_event(
+        "explain.completed",
+        _explain_as_json(details, downstream, decisions, contradictions),
+    )
+    if output == "json":
+        typer.echo(
+            json.dumps(
+                _explain_as_json(details, downstream, decisions, contradictions),
+                sort_keys=True,
+                indent=2,
+            )
+        )
+    else:
+        _print_explain(details, downstream, decisions, contradictions)
+
+
+@memory_app.command("search")
+def memory_search_command(
+    text: Annotated[str, typer.Argument(help="Free text describing a failure to search for.")],
+    stage: Annotated[
+        str | None, typer.Option("--stage", help="Restrict to one pipeline stage.")
+    ] = None,
+    limit: Annotated[int, typer.Option("--limit")] = 8,
+) -> None:
+    """Search negative computational memory directly — PROJECT.md §7.1.
+    Prints plain cosine distances only, never a tier verdict: tiering
+    (db/memory.py::tier) needs a proposed plan's structured features to
+    know which fields are causal, which a bare text query doesn't have."""
+
+    provider = default_provider()
+    typer.echo(f"provider={type(provider).__name__}")
+    embedding = provider.embed(text)
+    pool = get_pool()
+    try:
+        matches = search_text(pool, embedding=embedding, stage=stage, limit=limit)
+    finally:
+        close_pool()
+
+    emit_event(
+        "memory.search_completed",
+        {
+            "query": text,
+            "stage": stage,
+            "limit": limit,
+            "provider": type(provider).__name__,
+            "matches": [
+                {
+                    "signature_id": str(m.signature_id),
+                    "stage": m.stage,
+                    "error_class": m.error_class,
+                    "summary_text": m.summary_text,
+                    "traceback_head": m.traceback_head,
+                    "cosine_distance": m.cosine_distance,
+                    "wasted_ms": m.wasted_ms,
+                    "created_at": m.created_at.isoformat(),
+                    "has_verified_remediation": m.causal_keys is not None,
+                }
+                for m in matches
+            ],
+        },
+    )
+    if not matches:
+        typer.echo("no matches")
+        return
+    for match in matches:
+        typer.echo(
+            f"{match.stage:<11} {match.error_class:<24} dist={match.cosine_distance:.4f} "
+            f"{match.created_at.isoformat()}"
+        )
+        typer.echo(f"  {match.summary_text}")
+
+
+@memory_app.command("why-blocked")
+def memory_why_blocked_command(
+    output: Annotated[str, typer.Option("--output", help="table or json")] = "table",
+) -> None:
+    """Explain the most recent refusal in the decision ledger — PROJECT.md §7.1."""
+
+    if output not in {"table", "json"}:
+        raise typer.BadParameter("must be 'table' or 'json'", param_hint="--output")
+
+    pool = get_pool()
+    try:
+        refusal = _latest_refusal(pool)
+    finally:
+        close_pool()
+
+    if refusal is None:
+        emit_event("memory.why_blocked_completed", {"refusal": None})
+        typer.echo("no refusal on record", err=True)
+        raise typer.Exit(code=1)
+
+    emit_event("memory.why_blocked_completed", {"refusal": _decision_as_json(refusal)})
+    if output == "json":
+        typer.echo(json.dumps(_decision_as_json(refusal), sort_keys=True, indent=2))
+        return
+    typer.echo(f"work_key    {refusal.work_key}")
+    typer.echo(f"stage       {refusal.stage}")
+    typer.echo(f"action      {refusal.action}")
+    typer.echo(f"proposed_by {refusal.proposed_by}")
+    typer.echo(f"created_at  {refusal.created_at.isoformat()}")
+    typer.echo(f"explanation {refusal.explanation}")
+
+
+@app.command("doctor")
+def doctor_command() -> None:
+    """Diagnose the environment — PROJECT.md §7.1: database, schema, vector
+    index, ccloud cluster identity, and AWS credentials. Only the database
+    and schema checks gate the exit code; ccloud/AWS/vector-index are
+    reported honestly but never block a green `doctor` on a machine that
+    simply doesn't have them configured (PLAN.md §13's `--no-llm` risk
+    mitigation applies here too: a missing AWS/ccloud check must never
+    read as a Cairn bug)."""
+
+    gating_ok = True
+
+    try:
+        pool = get_pool()
+
+        def _version_tx(cur: psycopg.Cursor) -> str:
+            cur.execute("SELECT version()")
+            row = cur.fetchone()
+            return str(row[0]) if row else "unknown"
+
+        version = in_txn(pool, _version_tx, op="doctor.database")
+        db_ok, db_detail = True, version
+    except Exception as exc:  # noqa: BLE001 - doctor must report, never crash
+        db_ok, db_detail = False, f"unreachable: {exc}"
+    typer.echo(f"{'PASS' if db_ok else 'FAIL'}  database     {db_detail}")
+    gating_ok = gating_ok and db_ok
+
+    schema_ok, schema_detail = _doctor_schema()
+    typer.echo(f"{'PASS' if schema_ok else 'FAIL'}  schema       {schema_detail}")
+    gating_ok = gating_ok and schema_ok
+
+    try:
+        status = vector_index_status(get_pool())
+        vector_index_detail = status.detail
+        typer.echo(f"{'PASS' if status.active else 'INFO'}  vector-index {status.detail}")
+    except Exception as exc:  # noqa: BLE001
+        vector_index_detail = f"unavailable: {exc}"
+        typer.echo(f"INFO  vector-index unavailable: {exc}")
+
+    ccloud_detail = _doctor_ccloud()
+    typer.echo(f"INFO  ccloud       {ccloud_detail}")
+
+    aws_ok, aws_detail = _doctor_aws()
+    typer.echo(f"{'PASS' if aws_ok else 'INFO'}  aws          {aws_detail}")
+
+    close_pool()
+    emit_event(
+        "doctor.completed",
+        {
+            "database_ok": db_ok,
+            "database_detail": db_detail,
+            "schema_ok": schema_ok,
+            "schema_detail": schema_detail,
+            "vector_index_detail": vector_index_detail,
+            "ccloud_detail": ccloud_detail,
+            "aws_ok": aws_ok,
+            "aws_detail": aws_detail,
+            "gating_ok": gating_ok,
+        },
+    )
+    if gating_ok:
+        typer.echo("Everything load-bearing looks healthy.")
+    else:
+        raise typer.Exit(code=1)
+
+
+def _doctor_schema() -> tuple[bool, str]:
+    migrations_dir = Path(__file__).resolve().parents[2] / "db" / "migrations"
+    if not migrations_dir.is_dir():
+        return False, f"migrations directory not found at {migrations_dir}"
+    files = sorted(p.name for p in migrations_dir.glob("*.sql"))
+    if not files:
+        return False, f"no migration files found in {migrations_dir}"
+    try:
+        pool = get_pool()
+
+        def _applied_tx(cur: psycopg.Cursor) -> set[str]:
+            cur.execute("SELECT version FROM schema_migrations")
+            return {row[0] for row in cur.fetchall()}
+
+        applied = in_txn(pool, _applied_tx, op="doctor.schema")
+    except Exception as exc:  # noqa: BLE001
+        return False, f"could not read schema_migrations: {exc}"
+    missing = [f for f in files if f not in applied]
+    if missing:
+        return False, f"{len(missing)} migration(s) not applied: {', '.join(missing)}"
+    return True, f"{len(files)} migrations applied"
+
+
+def _doctor_ccloud() -> str:
+    ccloud_path = shutil.which("ccloud")
+    if ccloud_path is None:
+        return "ccloud not found on PATH (not installed / not configured)"
+    try:
+        completed = subprocess.run(
+            ["ccloud", "cluster", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except subprocess.TimeoutExpired:
+        return "ccloud cluster list timed out after 20s"
+    if completed.returncode != 0:
+        return f"ccloud cluster list failed: {completed.stderr.strip()[:200]}"
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return "ccloud responded but output was not valid JSON (tolerated, unknown shape)"
+    count = len(payload) if isinstance(payload, list) else "unknown-shape"
+    return f"reachable, {count} cluster(s)"
+
+
+# A tiny standalone script, run via `sys.executable -c`, not imported into
+# this process — isolates the real boto3 STS call in its own process so a
+# native-DLL crash there (this machine's Avast/OpenSSL conflict when boto3
+# is imported into a process that already imported torch, A.2) can never
+# take `cairn doctor` down with it. ~20s timeout bounds the worst case.
+_AWS_STS_PROBE = (
+    "import json, sys\n"
+    "try:\n"
+    "    import boto3\n"
+    "    identity = boto3.client('sts').get_caller_identity()\n"
+    "    print(json.dumps({'ok': True, 'account': identity.get('Account')}))\n"
+    "except Exception as exc:\n"
+    "    print(json.dumps({'ok': False, 'error': str(exc)}))\n"
+)
+
+
+def _doctor_aws() -> tuple[bool, str]:
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", _AWS_STS_PROBE],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "AWS STS check timed out after 20s"
+    lines = [line for line in completed.stdout.strip().splitlines() if line]
+    if not lines:
+        return False, f"AWS STS check produced no output: {completed.stderr.strip()[:200]}"
+    try:
+        payload = json.loads(lines[-1])
+    except json.JSONDecodeError:
+        return False, f"AWS STS check produced unparsable output: {lines[-1][:200]}"
+    if payload.get("ok"):
+        return True, f"credentials valid, account={payload.get('account')}"
+    return False, f"unreachable: {str(payload.get('error', 'unknown error'))[:200]}"
+
+
+def _print_explain(
+    details: ArtifactDetails,
+    downstream: list[str],
+    decisions: list[DecisionRecord],
+    contradictions: list[Contradiction],
+) -> None:
+    typer.echo(f"{details.stage} · {details.artifact_id}")
+    typer.echo("")
+    typer.echo(f"work_key       {details.work_key}")
+    typer.echo(f"s3_uri         {details.s3_uri}")
+    typer.echo(f"size_bytes     {details.size_bytes}")
+    typer.echo(f"duration_ms    {details.duration_ms}")
+    typer.echo(f"region         {details.region}")
+    typer.echo(f"env            {details.env_fingerprint}")
+    typer.echo(f"created_at     {details.created_at.isoformat()}")
+    if details.quarantined_at is not None:
+        typer.echo(f"quarantined_at {details.quarantined_at.isoformat()}")
+    typer.echo("")
+    typer.echo("inputs")
+    for item in details.inputs:
+        typer.echo(f"  {item.input_kind:<10} {item.input_ref}  digest={item.input_digest[:16]}")
+    if not details.inputs:
+        typer.echo("  (none)")
+    typer.echo("")
+    typer.echo("downstream")
+    for artifact_id in downstream:
+        typer.echo(f"  {artifact_id}")
+    if not downstream:
+        typer.echo("  (none)")
+    typer.echo("")
+    typer.echo("decisions")
+    for decision in decisions:
+        typer.echo(
+            f"  {decision.created_at.isoformat()}  {decision.action:<22} "
+            f"verdict={decision.verdict:<10} authorized_by={decision.authorized_by or '-'} "
+            f"class={decision.change_class or '-'}"
+        )
+    if not decisions:
+        typer.echo("  (none)")
+    typer.echo("")
+    typer.echo("contradictions")
+    for contradiction in contradictions:
+        typer.echo(
+            f"  {contradiction.created_at.isoformat()}  "
+            f"quarantined={contradiction.quarantined}  {contradiction.evidence}"
+        )
+    if not contradictions:
+        typer.echo("  (none)")
+
+
+def _explain_as_json(
+    details: ArtifactDetails,
+    downstream: list[str],
+    decisions: list[DecisionRecord],
+    contradictions: list[Contradiction],
+) -> dict[str, object]:
+    return {
+        "artifact_id": details.artifact_id,
+        "stage": details.stage,
+        "work_key": details.work_key,
+        "s3_uri": details.s3_uri,
+        "size_bytes": details.size_bytes,
+        "duration_ms": details.duration_ms,
+        "region": details.region,
+        "env_fingerprint": details.env_fingerprint,
+        "created_at": details.created_at.isoformat(),
+        "quarantined_at": details.quarantined_at.isoformat() if details.quarantined_at else None,
+        "inputs": [
+            {"input_kind": i.input_kind, "input_ref": i.input_ref, "input_digest": i.input_digest}
+            for i in details.inputs
+        ],
+        "downstream": downstream,
+        "decisions": [_decision_as_json(d) for d in decisions],
+        "contradictions": [
+            {
+                "contradiction_id": str(c.contradiction_id),
+                "contradicting_run": str(c.contradicting_run),
+                "evidence": c.evidence,
+                "quarantined": c.quarantined,
+                "created_at": c.created_at.isoformat(),
+            }
+            for c in contradictions
+        ],
+    }
+
+
+def _decision_as_json(decision: DecisionRecord) -> dict[str, object]:
+    return {
+        "decision_id": str(decision.decision_id),
+        "work_key": decision.work_key,
+        "stage": decision.stage,
+        "action": decision.action,
+        "verdict": decision.verdict,
+        "change_class": decision.change_class,
+        "proposed_by": decision.proposed_by,
+        "authorized_by": decision.authorized_by,
+        "candidate_artifact_id": decision.candidate_artifact_id,
+        "latency_ms": decision.latency_ms,
+        "explanation": decision.explanation,
+        "created_at": decision.created_at.isoformat(),
+    }
+
+
 def _ensure_environment(pool: ConnectionPool, environment: EnvManifest) -> None:
     ensure_environment(
         pool,
@@ -309,3 +852,13 @@ def _as_json(result: PipelinePlan) -> dict[str, object]:
             for stage in result.stages
         ],
     }
+
+
+if __name__ == "__main__":
+    # Makes `python -m cairn.cli <args>` behave identically to the
+    # installed `cairn` console script (pyproject.toml's
+    # `cairn = "cairn.cli:app"`) — without this, `-m` imports the module,
+    # defines `app`, and exits without ever invoking it: a real, confirmed
+    # bug (every subprocess the TUI spawns via `<python> -m cairn.cli
+    # <args>` — tui/src/connection/subprocess.ts — silently did nothing).
+    app()

@@ -262,6 +262,68 @@ def search(
     return in_txn(pool, _tx, op="memory.search")
 
 
+def search_text(
+    pool: ConnectionPool,
+    *,
+    embedding: Sequence[float],
+    stage: str | None = None,
+    limit: int = 8,
+) -> list[Match]:
+    """Stage-optional variant of `search` for `cairn memory search` / the
+    TUI's `/memory` command: a human exploring memory doesn't necessarily
+    know which stage a failure belongs to, unlike the always-stage-scoped
+    pre-flight check in `agent/loop.py`. Same LATERAL join against each
+    signature's most recent succeeded remediation as `search`."""
+
+    vector = _vector_literal(embedding)
+
+    def _tx(cur: psycopg.Cursor) -> list[Match]:
+        cur.execute(
+            """
+            SELECT fs.signature_id, fs.stage, fs.error_class, fs.traceback_head, fs.summary_text,
+                   fs.model_family, fs.model_id, fs.embedding_dim, fs.num_labels, fs.dataset_rows,
+                   fs.max_seq_len, fs.batch_size, fs.grad_accum, fs.precision, fs.optimizer, fs.lr,
+                   fs.instance_kind, fs.vcpu, fs.mem_mib, fs.accelerator, fs.framework,
+                   fs.framework_version, fs.oom_killed, fs.wasted_ms, fs.created_at,
+                   fs.embedding <=> %s AS dist,
+                   r.changed_keys
+              FROM failure_signatures fs
+              LEFT JOIN LATERAL (
+                     SELECT changed_keys FROM remediations
+                      WHERE remediations.signature_id = fs.signature_id AND succeeded
+                      ORDER BY created_at DESC LIMIT 1
+                   ) r ON true
+             WHERE (%s::STRING IS NULL OR fs.stage = %s)
+             ORDER BY fs.embedding <=> %s
+             LIMIT %s
+            """,
+            (vector, stage, stage, vector, limit),
+        )
+        return [_row_to_match(row) for row in cur.fetchall()]
+
+    return in_txn(pool, _tx, op="memory.search_text")
+
+
+def vector_index_status(pool: ConnectionPool) -> VectorIndexStatus:
+    """Read-only report of whether `fs_sem` exists — unlike
+    `ensure_vector_index`, this never runs `SET CLUSTER SETTING` or
+    `CREATE INDEX`. `cairn doctor` and the TUI status surface must be able
+    to report index health without a side effect; `ensure_vector_index`
+    stays the only mutating path, called only from setup scripts."""
+
+    def _tx(cur: psycopg.Cursor) -> VectorIndexStatus:
+        cur.execute("SELECT DISTINCT index_name FROM [SHOW INDEXES FROM failure_signatures]")
+        names = {row[0] for row in cur.fetchall()}
+        if "fs_sem" in names:
+            return VectorIndexStatus(active=True, detail="vector index fs_sem present")
+        return VectorIndexStatus(
+            active=False,
+            detail="vector index fs_sem not found — search() falls back to brute-force cosine",
+        )
+
+    return in_txn(pool, _tx, op="memory.vector_index_status")
+
+
 @dataclass(frozen=True)
 class FailureSignature:
     stage: str

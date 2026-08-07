@@ -29,6 +29,7 @@ from psycopg_pool import ConnectionPool
 
 from cairn.db.graph import ArtifactInput, insert_artifact
 from cairn.db.txn import in_txn
+from cairn.obs.events import emit_event
 
 LEASE_SECONDS = 45
 HEARTBEAT_SECONDS = 10
@@ -178,7 +179,49 @@ def acquire(
             run_id=rid,
         )
 
-    return in_txn(pool, _tx, op="claim.acquire")
+    claim = in_txn(pool, _tx, op="claim.acquire")
+    # Emitted after commit, deliberately outside `_tx` — see
+    # obs/events.py's module docstring (mirrors db/contradictions.py's own
+    # rule for obs/metrics.emit_metric).
+    if claim.won and claim.took_over_from is not None:
+        emit_event(
+            "claim.takeover",
+            {
+                "work_key": work_key,
+                "stage": stage,
+                "owner": owner,
+                "took_over_from": claim.took_over_from,
+                "fence": claim.fence,
+                "region": region,
+            },
+            run_id=str(run_id),
+        )
+    elif claim.won:
+        emit_event(
+            "claim.acquired",
+            {
+                "work_key": work_key,
+                "stage": stage,
+                "owner": owner,
+                "fence": claim.fence,
+                "region": region,
+            },
+            run_id=str(run_id),
+        )
+    elif claim.reuse_artifact_id is None:
+        emit_event(
+            "claim.contended",
+            {
+                "work_key": work_key,
+                "stage": stage,
+                "owner": claim.owner,
+                "owner_host": claim.owner_host,
+                "owner_region": claim.owner_region,
+                "owner_fence": claim.owner_fence,
+            },
+            run_id=str(run_id),
+        )
+    return claim
 
 
 def heartbeat(pool: ConnectionPool, work_key: str, owner: str, fence: int) -> bool:
@@ -196,7 +239,12 @@ def heartbeat(pool: ConnectionPool, work_key: str, owner: str, fence: int) -> bo
         )
         return cur.rowcount == 1
 
-    return in_txn(pool, _tx, op="claim.heartbeat")
+    ok = in_txn(pool, _tx, op="claim.heartbeat")
+    if not ok:
+        emit_event("claim.lease_expired", {"work_key": work_key, "owner": owner, "fence": fence})
+    else:
+        emit_event("claim.heartbeat", {"work_key": work_key, "owner": owner, "fence": fence})
+    return ok
 
 
 def complete(
@@ -233,7 +281,23 @@ def complete(
         insert_artifact(cur, artifact, inputs)
         return True
 
-    return in_txn(pool, _tx, op="claim.complete")
+    completed = in_txn(pool, _tx, op="claim.complete")
+    if completed:
+        emit_event(
+            "claim.completed",
+            {
+                "work_key": work_key,
+                "owner": owner,
+                "fence": fence,
+                "artifact_id": artifact.artifact_id,
+                "stage": artifact.stage,
+                "duration_ms": artifact.duration_ms,
+                "size_bytes": artifact.size_bytes,
+                "region": artifact.region,
+            },
+            run_id=str(artifact.produced_by_run),
+        )
+    return completed
 
 
 def fail(pool: ConnectionPool, work_key: str, owner: str, fence: int) -> bool:
@@ -251,7 +315,10 @@ def fail(pool: ConnectionPool, work_key: str, owner: str, fence: int) -> bool:
         )
         return cur.rowcount == 1
 
-    return in_txn(pool, _tx, op="claim.fail")
+    ok = in_txn(pool, _tx, op="claim.fail")
+    if ok:
+        emit_event("claim.failed", {"work_key": work_key, "owner": owner, "fence": fence})
+    return ok
 
 
 def subscribe(
@@ -277,12 +344,24 @@ def subscribe(
         return row
 
     started = time.monotonic()
+    announced = False
     while True:
         state, owner_id, owner_host, owner_region, artifact_id = in_txn(
             pool, _poll, op="claim.subscribe_poll"
         )
+        if not announced:
+            emit_event(
+                "claim.subscribed",
+                {
+                    "work_key": work_key,
+                    "owner": owner_id,
+                    "owner_host": owner_host,
+                    "owner_region": owner_region,
+                },
+            )
+            announced = True
         if state in _TERMINAL_STATES:
-            return SubscribeResult(
+            result = SubscribeResult(
                 terminal_state=state,
                 artifact_id=artifact_id,
                 owner=owner_id,
@@ -290,6 +369,17 @@ def subscribe(
                 owner_region=owner_region,
                 waited_s=time.monotonic() - started,
             )
+            emit_event(
+                "claim.subscribe_completed",
+                {
+                    "work_key": work_key,
+                    "owner": owner_id,
+                    "terminal_state": state,
+                    "artifact_id": artifact_id,
+                    "waited_s": result.waited_s,
+                },
+            )
+            return result
         elapsed = time.monotonic() - started
         if elapsed > max_wait_s:
             raise TimeoutError(

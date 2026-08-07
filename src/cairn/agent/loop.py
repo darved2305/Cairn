@@ -64,6 +64,7 @@ from cairn.db.graph import (
 )
 from cairn.db.txn import in_txn
 from cairn.embeddings import default_provider
+from cairn.obs.events import emit_event
 from cairn.planner import STAGES, PipelinePlan, StagePlan, artifact_inputs, plan_pipeline
 from cairn.probes import p1_env, p3_features
 from cairn.probes.base import ProbeResult
@@ -612,6 +613,16 @@ def run_stage(
             ),
         )
         claims.fail(pool, work_key, owner, claim.fence)
+        emit_event(
+            "approval.requested",
+            {
+                "work_key": work_key,
+                "stage": stage_name,
+                "projected_cost_usd": cost,
+                "approval_usd": approval_usd,
+                "detail": cost_detail,
+            },
+        )
         raise Escalation(f"ESCALATE work_key={work_key} {cost_detail}")
 
     # --- decide + act: probe-based reuse (features only) or real recompute ---
@@ -748,6 +759,11 @@ def run_stage(
 
 def _replan_and_recurse(pool: ConnectionPool, **kwargs: Any) -> StageOutcome:
     remediation_note = kwargs.pop("remediation_note")
+    emit_event(
+        "remediation.applied",
+        {"stage": kwargs.get("stage_name"), "note": remediation_note},
+        run_id=str(kwargs.get("run_id")) if kwargs.get("run_id") else None,
+    )
     outcome = run_stage(pool, **kwargs)
     return StageOutcome(
         stage=outcome.stage,
@@ -1052,6 +1068,11 @@ def run_pipeline(
     run_id: uuid.UUID | None = None,
 ) -> list[StageOutcome]:
     run_id = run_id or uuid.uuid4()
+    emit_event(
+        "run.started",
+        {"target_stage": target_stage, "bucket": bucket, "region": region, "owner": owner},
+        run_id=str(run_id),
+    )
     environment = stage_env.run()
     ensure_environment(
         pool,
@@ -1076,6 +1097,11 @@ def run_pipeline(
     outcomes: dict[str, StageOutcome] = {}
     for spec in STAGES[: target_index + 1]:
         upstream = {name: outcomes[name] for name in spec.upstream}
+        emit_event(
+            "stage.started",
+            {"stage": spec.name, "work_key": plan.by_stage()[spec.name].work_key.value},
+            run_id=str(run_id),
+        )
         try:
             outcome = run_stage(
                 pool,
@@ -1091,7 +1117,12 @@ def run_pipeline(
                 upstream=upstream,
                 approval_usd=approval_usd,
             )
-        except Exception:
+        except Exception as exc:
+            emit_event(
+                "stage.failed",
+                {"stage": spec.name, "error_class": type(exc).__name__, "error": str(exc)},
+                run_id=str(run_id),
+            )
             reused_upstream = [
                 name
                 for name, o in upstream.items()
@@ -1106,7 +1137,29 @@ def run_pipeline(
                     run_id,
                     evidence=f"{spec.name} stage failed downstream of reused artifact {culprit.artifact_id}",
                 )
+            emit_event(
+                "run.failed",
+                {"target_stage": target_stage, "failed_stage": spec.name},
+                run_id=str(run_id),
+            )
             raise
+        emit_event(
+            "stage.completed",
+            {
+                "stage": spec.name,
+                "work_key": outcome.work_key,
+                "action": outcome.action.value,
+                "verdict": outcome.verdict,
+                "artifact_id": outcome.artifact.artifact_id if outcome.artifact else None,
+                "detail": outcome.detail,
+            },
+            run_id=str(run_id),
+        )
         outcomes[spec.name] = outcome
 
+    emit_event(
+        "run.completed",
+        {"target_stage": target_stage, "stages": list(outcomes)},
+        run_id=str(run_id),
+    )
     return [outcomes[spec.name] for spec in STAGES[: target_index + 1]]

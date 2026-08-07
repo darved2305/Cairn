@@ -17,6 +17,8 @@ dependencies = [
     "pandas>=2.2",
     "pyarrow>=17",
     "boto3>=1.35",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
 ]
 
 [project.scripts]

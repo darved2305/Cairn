@@ -17,16 +17,31 @@ from psycopg_pool import ConnectionPool
 from cairn.db.pool import close_pool, get_pool
 
 
-@pytest.fixture(scope="session")
-def pool() -> Iterator[ConnectionPool]:
+@pytest.fixture(scope="session", autouse=True)
+def _close_pool_at_session_end() -> Iterator[None]:
+    yield
+    close_pool()
+
+
+@pytest.fixture
+def pool() -> ConnectionPool:
+    """Function-scoped on purpose, not session-scoped: some tests (e.g.
+    tests/integration/test_cli_claim_demo.py) invoke `cairn` CLI commands
+    that call close_pool() themselves — correct behavior for a real
+    standalone process. A session-scoped fixture would cache that one
+    now-closed ConnectionPool object and hand it to every later test in
+    the same pytest run (a real PoolClosed failure this exact bug once
+    produced, run the full suite to see it recur if this reverts).
+    get_pool() is a cheap lazy singleton — calling it fresh per test costs
+    nothing when the pool is already open, and transparently reopens one
+    if a prior test closed it.
+    """
     if not os.environ.get("CAIRN_DATABASE_URL"):
         pytest.skip(
             "CAIRN_DATABASE_URL not set — integration tests need a live "
             "CockroachDB cluster (see scripts/provision_cluster.sh)"
         )
-    p = get_pool()
-    yield p
-    close_pool()
+    return get_pool()
 
 
 @pytest.fixture(scope="session")

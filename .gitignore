@@ -22,6 +22,21 @@ node_modules/
 *.tfstate
 *.tfstate.*
 *.tfvars
+tfplan
+*.tfplan
+# tfplan is a saved `terraform plan -out=` file — it can embed the actual
+# value of variables marked sensitive=true (the CLI redacts them from
+# terminal output, not from the plan file's own contents), so this is a
+# secrets-adjacent artifact, not just build noise.
+#
+# .terraform.lock.hcl is NOT ignored — HashiCorp's own guidance is to
+# commit it, so `terraform init` picks the same provider build everywhere.
+
+# lambda build artifacts — scripts/build_reaper_lambda.sh produces these;
+# terraform apply reads reaper.zip but neither is source, both are rebuilt
+# from lambda/reaper/handler.py + pinned psycopg version on demand.
+lambda/*/reaper.zip
+lambda/*/.build/
 
 # os / editor
 .DS_Store

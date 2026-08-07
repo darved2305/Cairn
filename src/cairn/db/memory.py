@@ -405,16 +405,28 @@ def ensure_vector_index(pool: ConnectionPool) -> VectorIndexStatus:
     CockroachDB plan/build — `cairn doctor` surfaces this status, and
     db/memory.py::search runs correct (if slower) brute-force `<=>` queries
     either way, so a missing index is degraded performance, never a
-    correctness gap."""
+    correctness gap.
 
-    def _tx(cur: psycopg.Cursor) -> None:
-        cur.execute("SET CLUSTER SETTING feature.vector_index.enabled = true")
-        cur.execute(
-            "CREATE VECTOR INDEX fs_sem ON failure_signatures (stage, error_class, embedding vector_cosine_ops)"
-        )
+    Deliberately not routed through `in_txn`: a real CockroachDB Cloud
+    cluster rejects `SET CLUSTER SETTING` inside an explicit transaction
+    ("cannot be used inside a multi-statement transaction") — a cluster
+    setting is cluster-wide, not scoped to one SQL transaction, and
+    `in_txn` always opens one. The single-node local dev image tolerated
+    it (masking the bug there; it failed on the *next* statement instead,
+    for an unrelated reason), which is exactly why this was only caught
+    once this ran against the real cluster. Each statement here commits
+    on its own via autocommit, same as scripts/migrate.py's DDL.
+    """
 
     try:
-        in_txn(pool, _tx, op="memory.ensure_vector_index")
+        with pool.connection() as conn:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute("SET CLUSTER SETTING feature.vector_index.enabled = true")
+                cur.execute(
+                    "CREATE VECTOR INDEX fs_sem ON failure_signatures "
+                    "(stage, error_class, embedding vector_cosine_ops)"
+                )
         return VectorIndexStatus(active=True, detail="vector index fs_sem created")
     except psycopg.errors.DuplicateObject:
         return VectorIndexStatus(active=True, detail="vector index fs_sem already exists")

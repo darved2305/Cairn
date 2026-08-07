@@ -23,6 +23,8 @@ import psycopg
 from psycopg.errors import SerializationFailure
 from psycopg_pool import ConnectionPool
 
+from cairn.obs.metrics import emit_metric
+
 logger = logging.getLogger("cairn.db.txn")
 
 MAX_ATTEMPTS = 8
@@ -58,6 +60,7 @@ def in_txn[T](pool: ConnectionPool, fn: Callable[[psycopg.Cursor], T], *, op: st
                     "y" if attempt == 1 else "ies",
                     extra={"op": op, "retries": attempt, "metric": "TxnRetries40001"},
                 )
+                emit_metric("TxnRetries40001", attempt, dimensions={"op": op})
             return result
         except SerializationFailure as e:
             last = e

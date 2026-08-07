@@ -17,7 +17,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from psycopg.types.json import Jsonb
 
@@ -173,12 +173,25 @@ def test_live_claim_refuses_takeover(pool) -> None:
     assert second.owner_fence == first.fence
 
 
-@settings(max_examples=20, deadline=None)
+@settings(
+    max_examples=20,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
 @given(cycles=st.integers(min_value=1, max_value=4))
 def test_fence_strictly_increases_across_takeovers(pool, cycles: int) -> None:
     # 500 examples (PLAN.md's default property-test budget) assumes a pure,
     # DB-free function; this property is asserted over real transactions
     # against a live cluster, so the example count is deliberately smaller.
+    #
+    # function_scoped_fixture is suppressed deliberately, not blindly: the
+    # `pool` fixture (tests/integration/conftest.py) is function-scoped so
+    # that a test which closes the process-wide pool (test_cli_claim_demo.py)
+    # can't poison a session-cached pool object for every later test. That
+    # doesn't make `pool` unstable *within* one test's Hypothesis example
+    # loop — get_pool() still returns the same live ConnectionPool for the
+    # whole duration of this test function, so nothing here can produce the
+    # subtle cross-example leakage this health check exists to catch.
     work_key = f"fence-monotone-{uuid.uuid4().hex[:8]}"
     run_id = uuid.uuid4()
 

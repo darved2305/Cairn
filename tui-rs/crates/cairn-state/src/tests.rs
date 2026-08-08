@@ -769,3 +769,25 @@ fn command_lifecycle_tracks_running_and_surfaces_stderr_only_on_failure() {
     state.command_exited("cairn plan", 0, true);
     assert!(state.ui.status_message.is_none());
 }
+
+#[test]
+fn command_exit_closes_an_inflight_stage_when_no_terminal_event_arrives() {
+    let mut state = AppState::new();
+    state.command_started("cairn run --all");
+    apply(
+        &mut state,
+        "stage.started",
+        json!({"stage": "dataset", "work_key": "wk-dataset"}),
+    );
+    assert_eq!(state.pipeline.current_stage.as_deref(), Some("dataset"));
+
+    state.set_now(2_500);
+    state.command_exited("cairn run --all", 1, true);
+
+    assert!(state.pipeline.current_stage.is_none());
+    let node = state.pipeline.node("dataset").unwrap();
+    assert_eq!(node.status, StageStatus::Failed);
+    assert_eq!(node.runtime_ms, Some(2_500));
+    assert!(node.error.as_deref().unwrap().contains("before the stage emitted"));
+    assert_eq!(state.activity.activity, Activity::Refused);
+}

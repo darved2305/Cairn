@@ -68,7 +68,7 @@ export function Section({
   } as const;
   return (
     <section id={id} className={`${tones[tone]} px-6 py-20 sm:py-28 ${className}`}>
-      <div className="mx-auto w-full max-w-6xl">{children}</div>
+      <div className="mx-auto min-w-0 w-full max-w-6xl">{children}</div>
     </section>
   );
 }

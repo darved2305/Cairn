@@ -159,7 +159,7 @@ export function Problem() {
   return (
     <Section tone="tint">
       <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr]">
-        <div>
+        <div className="min-w-0">
           <Eyebrow>The problem</Eyebrow>
           <h2 className="text-balance text-3xl font-semibold leading-tight tracking-tight sm:text-4xl">
             Three wastes, one missing substrate
@@ -378,7 +378,7 @@ export function HowItWorks() {
       </div>
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[0.8fr_1.2fr]">
-        <div>
+        <div className="min-w-0">
           <h3 className="text-xl font-semibold">{step.title}</h3>
           <p className="mt-2 text-sm font-medium text-accent">{step.lead}</p>
           <p className="mt-4 text-sm leading-relaxed text-ink-2">{step.body}</p>
@@ -387,7 +387,7 @@ export function HowItWorks() {
             CockroachDB Cloud cluster as the rest of this page.
           </p>
         </div>
-        <div>{step.panel}</div>
+        <div className="min-w-0">{step.panel}</div>
       </div>
     </Section>
   );

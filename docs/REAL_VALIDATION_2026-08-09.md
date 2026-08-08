@@ -302,3 +302,76 @@ appended below as they are obtained.
 - A new live integration case completed two different work keys/environments
   against one identical content address and passed. The changed INSERT also
   passed live `EXPLAIN`; seven graph unit tests pass.
+
+### Revision 7 real five-stage workload
+
+- Existing worker families were advanced to revision 7 with image `0eab34d`;
+  the ECR digest is
+  `sha256:cbd448e1b8ece57a918ec5bfe4b8107c0217393d66be0f412045a30abac198fb`.
+- The cold features task
+  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/05f9aa3626ef400b83e371c84a925ad2`
+  exited 0 after real transformer inference. A mid-run claim read showed its
+  `updated_at` advancing and 41 seconds remaining on the 45-second lease,
+  proving the new heartbeat path under actual long compute. It wrote artifact
+  `f447bbf0750c6fad22b05b935962657fc4a0a4425ab9e08deaa15a601b34e033`.
+- Checkpoint task `9f80af3b94c44ea5aaca1869ba11d5b7` and eval task
+  `4970521d253744708151cb5e793d88cc` both exited 0, producing real artifacts
+  `f26ea6a7f0a0091df2fcb95d8abf20568b335a72d5406102fbe54c2becb32f95`
+  and `081d8b64f69001482c3460b2bf61a2194fb70bdfd0218ea6aa5cf90bc7fb38c5`.
+- Exact `cairn run --all` task `106881c0a27c47ac809482b19c74e0d7`
+  then exited 0 with identity reuse for all five stages. S3 HEAD succeeded for
+  all five output objects. The console's database-derived savings endpoint
+  reported 16 reused, 10 recomputed, 596.465 measured seconds saved, and its
+  explicitly rate-based formula rather than a fabricated bill.
+
+### Real crash/takeover proof and driver defects
+
+- Two trials showed CloudWatch can buffer worker A's first line until process
+  exit, so a log wait was not a valid acquisition signal. The driver now
+  polls the exact `work_claims` primary-key row for `CLAIMED/RUNNING, fence=1`;
+  the lookup passed live `EXPLAIN` as a one-row primary-key scan.
+- A third real trial used work key `kill-worker-demo-1786229348`, task A
+  `952689a51a924d59bf186c8a2cc6da83`, and task B
+  `acf41a2dab4647b992999bbe189ace67`. A was stopped only after the database
+  proved fence 1. B exited 0 and its exact CloudWatch stream contains
+  `WON fence=2` and `COMPLETED ok=True artifact=838a3634...`.
+- The verifier itself then exposed Git Bash/MSYS rewriting `/ecs/...` into a
+  Windows path. `MSYS_NO_PATHCONV=1` now protects AWS resource names, and the
+  script fails unless B exits 0 and both exact proof lines are present.
+
+### TUI live/adversarial pass
+
+- The complete non-cloud Rust workspace now passes 72 tests; the release
+  binary rebuilt. Tests directly drive all advertised focus, selection,
+  drill-in, zoom, shortcut, command-line, completion/history, help, Escape,
+  theme, resize, and quit-confirmation paths. The multi-candidate Tab test
+  confirms completion advances instead of jamming on candidate one.
+- Four ignored live tests were run serially with the real CockroachDB URL and
+  pinned project venv. Doctor and plan passed with real events; memory search
+  surfaced the expected account/host failure without wedging.
+- The live run exposed two defects. Cargo-run binaries launched from the
+  crate directory could not find `cairn.yaml`; subprocesses now preserve a
+  valid cwd or discover the project root from the executable (with an explicit
+  override available). More importantly, a native Windows OpenSSL abort could
+  bypass `stage.failed` and leave a permanent spinner. A nonzero subprocess
+  exit now marks only the observed in-flight UI stage interrupted, retains the
+  real Cockroach lease/countdown, and never invents a database terminal state.
+  The exact abort retest rendered dataset failed and returned to a stopped
+  command state.
+
+### Browser-rendered console pass
+
+- The deployed desktop page was rendered in Chromium and showed the real
+  savings values and narrative correctly. Browser automation clicked Run the
+  demo and verified the rendered replay says `writes=false` and
+  `launches=false`.
+- Device emulation found a real responsive bug: the graph's intentional
+  `min-w-max` propagated through a Grid item's default minimum size, widening
+  a 430px document to 1,065px. Shrink boundaries now keep the document at
+  exactly 430px while retaining the graph's own 1,007px horizontal scroller.
+  The rebuilt mobile render is unclipped.
+- A real local Inspector form submission rendered a clean HTTP 503 plus the
+  explanatory fallback instead of hanging or replacing it with an answer.
+  The deployed Linux endpoint separately returned the real Claude Sonnet
+  account denial; Titan search likewise returned the real Operation-not-
+  allowed response.

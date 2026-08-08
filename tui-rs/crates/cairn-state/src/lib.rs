@@ -25,7 +25,7 @@ pub mod ui;
 use cairn_protocol::CairnEvent;
 use serde_json::Value;
 
-use activity::{activity_for_event, ActivitySnapshot};
+use activity::{activity_for_event, Activity, ActivitySnapshot};
 use claims::{ClaimPhase, ClaimsState, WorkerRef};
 use commands::SessionKnowledge;
 use ledger::{DecisionAction, DecisionEntry, LedgerState};
@@ -202,6 +202,26 @@ impl AppState {
             self.session.current_command = None;
         }
         if code != 0 {
+            // A native abort (for example, a DLL/OpenSSL failure) can end the
+            // child before Python gets a chance to emit stage.failed or
+            // run.failed. Do not leave a finished subprocess represented as
+            // a permanently running stage.
+            if let Some(stage) = self.pipeline.current_stage.take() {
+                let detail = format!(
+                    "backend command exited {code} before the stage emitted a terminal event"
+                );
+                if let Some(node) = self.pipeline.node_mut(&stage) {
+                    node.status = StageStatus::Failed;
+                    node.error = Some(detail);
+                    if let Some(start) = node.started_ms {
+                        node.runtime_ms = Some(self.now_ms.saturating_sub(start));
+                    }
+                }
+            }
+            self.activity = ActivitySnapshot {
+                activity: Activity::Refused,
+                label: "Command stopped".to_string(),
+            };
             let mut message = format!("{label} exited {code}");
             if !saw_events && !self.session.stderr_tail.is_empty() {
                 message.push_str(" — ");
@@ -209,6 +229,8 @@ impl AppState {
             }
             self.transcript.push(TranscriptKind::Error, message.clone(), "");
             self.note_status(message);
+        } else {
+            self.activity = ActivitySnapshot::idle();
         }
     }
 

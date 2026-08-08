@@ -23,14 +23,30 @@
 #   export CAIRN_SECURITY_GROUP=$(terraform -chdir=infra output -raw worker_security_group_primary)
 set -euo pipefail
 
+# Git Bash otherwise rewrites leading-slash AWS resource names such as
+# /ecs/cairn/worker-us-east-1 into Windows filesystem paths.
+export MSYS_NO_PATHCONV=1
+
 CLUSTER="${CAIRN_CLUSTER:?set CAIRN_CLUSTER — see terraform output cluster_primary}"
 TASK_DEF="${CAIRN_TASK_DEF:?set CAIRN_TASK_DEF — see terraform output worker_task_definition_primary}"
 REGION="${CAIRN_REGION:-us-east-1}"
 SUBNET="${CAIRN_SUBNET:?set CAIRN_SUBNET — see terraform output subnet_primary}"
 SECURITY_GROUP="${CAIRN_SECURITY_GROUP:?set CAIRN_SECURITY_GROUP — see terraform output worker_security_group_primary}"
+DATABASE_URL="${CAIRN_DATABASE_URL:?set CAIRN_DATABASE_URL for direct claim verification}"
 WORK_KEY="kill-worker-demo-$(date +%s)"
 HOLD_SECONDS="${CAIRN_HOLD_SECONDS:-120}"
 LEASE_SECONDS=45 # db/claims.py::LEASE_SECONDS — must match to wait long enough
+
+if [ -z "${CAIRN_PYTHON:-}" ]; then
+  if [ -x .venv/Scripts/python.exe ]; then
+    CAIRN_PYTHON=.venv/Scripts/python.exe
+  elif [ -x .venv/bin/python ]; then
+    CAIRN_PYTHON=.venv/bin/python
+  else
+    CAIRN_PYTHON=python
+  fi
+fi
+export CAIRN_DATABASE_URL="$DATABASE_URL"
 
 _run_task() {
   local hold="$1"
@@ -60,6 +76,44 @@ _wait_running() {
   return 1
 }
 
+_task_id() {
+  printf '%s' "${1##*/}"
+}
+
+_log_stream() {
+  printf 'worker/worker/%s' "$(_task_id "$1")"
+}
+
+_wait_for_claim() {
+  # CloudWatch buffered worker A's first log line until after process exit in
+  # real trials. The database claim is the authoritative readiness signal.
+  local deadline=$((SECONDS + 120))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if "$CAIRN_PYTHON" - "$WORK_KEY" <<'PY'
+import os
+import sys
+
+import psycopg
+
+with psycopg.connect(os.environ["CAIRN_DATABASE_URL"]) as conn:
+    row = conn.execute(
+        "SELECT state, fence FROM work_claims WHERE work_key = %s",
+        (sys.argv[1],),
+    ).fetchone()
+
+raise SystemExit(
+    0 if row is not None and row[0] in {"CLAIMED", "RUNNING"} and row[1] == 1 else 1
+)
+PY
+    then
+      return 0
+    fi
+    sleep 3
+  done
+  echo "worker A did not establish the expected fence=1 claim within 120s" >&2
+  return 1
+}
+
 echo "work_key = $WORK_KEY"
 echo "launching worker A (holding ${HOLD_SECONDS}s)..."
 TASK_ARN_A="$(_run_task "$HOLD_SECONDS")"
@@ -67,8 +121,8 @@ echo "worker A: $TASK_ARN_A"
 
 echo "waiting for worker A's Fargate task to actually reach RUNNING (cold-start image pull can exceed a fixed sleep)..."
 _wait_running "$TASK_ARN_A"
-echo "worker A is running — waiting 5s for it to acquire the claim..."
-sleep 5
+echo "worker A is running — waiting for its real fence=1 claim..."
+_wait_for_claim
 
 echo "killing worker A mid-run (StopTask)"
 aws ecs stop-task \
@@ -85,8 +139,29 @@ echo "launching worker B on the SAME work_key — expect a fenced takeover"
 TASK_ARN_B="$(_run_task 0)"
 echo "worker B: $TASK_ARN_B"
 
+echo "waiting for worker B to stop and verifying its exact task log..."
+aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK_ARN_B" --region "$REGION"
+EXIT_B="$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK_ARN_B" \
+  --region "$REGION" --query 'tasks[0].containers[0].exitCode' --output text)"
 LOG_GROUP="/ecs/cairn/worker-${REGION}"
+LOG_STREAM_B="$(_log_stream "$TASK_ARN_B")"
+LOGS_B="$(aws logs get-log-events --log-group-name "$LOG_GROUP" \
+  --log-stream-name "$LOG_STREAM_B" --region "$REGION" \
+  --query 'events[].message' --output text)"
+printf '%s\n' "$LOGS_B"
+
+if [ "$EXIT_B" != "0" ]; then
+  echo "worker B exited $EXIT_B" >&2
+  exit 1
+fi
+if ! grep -Fq "WON fence=2" <<<"$LOGS_B"; then
+  echo "worker B did not prove fence=2 takeover" >&2
+  exit 1
+fi
+if ! grep -Fq "COMPLETED ok=True" <<<"$LOGS_B"; then
+  echo "worker B did not complete the taken-over claim" >&2
+  exit 1
+fi
+
 echo
-echo "worker B should log 'WON fence=2' (fence incremented from worker A's 1) and COMPLETED."
-echo "check logs with:"
-echo "  aws logs tail '$LOG_GROUP' --since 10m --region $REGION --follow"
+echo "PASS: worker B logged WON fence=2 and COMPLETED ok=True after worker A was stopped."

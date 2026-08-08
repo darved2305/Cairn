@@ -85,6 +85,36 @@ pub fn resolve_python_command() -> PythonCommand {
     PythonCommand { program: OsString::from(fallback), base_args }
 }
 
+fn is_project_dir(path: &Path) -> bool {
+    path.join("cairn.yaml").is_file() && path.join("src").join("cairn").is_dir()
+}
+
+fn discover_project_dir_from(start: &Path) -> Option<PathBuf> {
+    start.ancestors().find(|path| is_project_dir(path)).map(Path::to_path_buf)
+}
+
+/// Resolve the directory inherited by real CLI subprocesses. A normal launch
+/// from the project root is untouched. Standalone/cargo-built binaries can
+/// still find the checkout by walking up from their executable, and packaged
+/// callers can provide an explicit root without changing process-global cwd.
+fn project_working_dir() -> Option<PathBuf> {
+    if let Some(explicit) = env::var_os("CAIRN_PROJECT_ROOT") {
+        let path = PathBuf::from(explicit);
+        if is_project_dir(&path) {
+            return Some(path);
+        }
+    }
+    if let Ok(cwd) = env::current_dir() {
+        if is_project_dir(&cwd) {
+            return Some(cwd);
+        }
+    }
+    env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        .and_then(|parent| discover_project_dir_from(&parent))
+}
+
 /// A live command. Dropping this does not kill the child — the supervisor
 /// thread owns its lifetime and always cleans up the temp events file.
 pub struct CommandHandle {
@@ -142,6 +172,9 @@ pub fn run_cairn_command(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(project_dir) = project_working_dir() {
+        command.current_dir(project_dir);
+    }
     for (key, value) in extra_env {
         command.env(key, value);
     }
@@ -313,6 +346,19 @@ mod tests {
         let resolved = resolve_python_command();
         assert_eq!(resolved.base_args, vec!["-m".to_string(), "cairn.cli".to_string()]);
         assert!(!resolved.program.is_empty());
+    }
+
+    #[test]
+    fn discovers_a_project_root_without_changing_process_cwd() {
+        let root = env::temp_dir().join(format!("cairn-root-{}", uuid::Uuid::new_v4()));
+        let nested = root.join("tui-rs").join("target").join("debug");
+        fs::create_dir_all(root.join("src").join("cairn")).unwrap();
+        fs::create_dir_all(&nested).unwrap();
+        File::create(root.join("cairn.yaml")).unwrap();
+
+        assert_eq!(discover_project_dir_from(&nested), Some(root.clone()));
+
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

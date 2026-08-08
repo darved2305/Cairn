@@ -132,6 +132,51 @@ resource "aws_secretsmanager_secret_version" "database_url" {
   secret_string = var.cairn_database_url
 }
 
+# --- the console's OWN, read-only credential ------------------------------
+#
+# PLAN.md §8 open decision 4 and D10's security checklist: the console must
+# not share the workers' write-capable database credential. Today it does —
+# `local.common_secrets` below is injected into all three task definitions —
+# and that is the single largest security gap in this stack, because the
+# console is the one task fronted by a public, unauthenticated URL.
+#
+# The database half of the fix is already built and committed:
+#   db/migrations/0008_console_readonly_role.sql   -> cairn_console_ro (SELECT only)
+#   scripts/provision_console_role.py              -> the login user + verification
+#
+# The Terraform half is the block below. It is commented out rather than
+# applied because it needs a new `cairn_console_database_url` variable holding
+# the URL that script prints, and a `terraform apply` is a real-infra action
+# reserved for an explicit human decision — not something a code change should
+# smuggle in. To enable, in order:
+#
+#   1. make migrate                                  (applies 0008)
+#   2. uv run python scripts/provision_console_role.py
+#      -> prints the cairn_console URL and proves the role cannot write
+#   3. add `variable "cairn_console_database_url" { type = string; sensitive = true }`
+#      to infra/vars.tf, and set it in your tfvars from step 2's output
+#   4. uncomment this block
+#   5. in aws_ecs_task_definition.console below, swap
+#        secrets = local.common_secrets
+#      for
+#        secrets = local.console_secrets
+#   6. add the new ARN to data.aws_iam_policy_document.ecs_execution_secrets
+#      in infra/iam.tf so the execution role can read it
+#   7. terraform apply
+#
+# After that the public console physically cannot write to CockroachDB, and
+# "read-only" stops being a property of console/queries.py's contents.
+#
+# resource "aws_secretsmanager_secret" "console_database_url" {
+#   name        = "${var.project_name}/console-database-url"
+#   description = "Read-only (SELECT-only) CockroachDB role for the public console."
+# }
+#
+# resource "aws_secretsmanager_secret_version" "console_database_url" {
+#   secret_id     = aws_secretsmanager_secret.console_database_url.id
+#   secret_string = var.cairn_console_database_url
+# }
+
 # --- task definitions ---
 
 locals {
@@ -146,6 +191,13 @@ locals {
   common_secrets = [
     { name = "CAIRN_DATABASE_URL", valueFrom = aws_secretsmanager_secret.database_url.arn },
   ]
+
+  # Swap this in for the console task once the read-only role is provisioned —
+  # see the long comment on the console_database_url secret above.
+  #
+  # console_secrets = [
+  #   { name = "CAIRN_DATABASE_URL", valueFrom = aws_secretsmanager_secret.console_database_url.arn },
+  # ]
 }
 
 resource "aws_ecs_task_definition" "worker_primary" {
@@ -220,13 +272,19 @@ resource "aws_ecs_task_definition" "console" {
     name      = "console"
     image     = local.image
     essential = true
-    # FastAPI console server lands D8 — this command is a placeholder
-    # until then so `terraform apply` produces a task definition that
-    # exists and is referenceable, not a working service yet.
-    command      = ["cairn", "--help"]
+    # The real console server. One image, one deploy path (PROJECT.md §6.1):
+    # this is the same image the workers run, with a different command, and
+    # `cairn.console.api` serves both the JSON API and the built React SPA
+    # baked in at /app/src/cairn/console/static (see Dockerfile).
+    command      = ["uvicorn", "cairn.console.api:app", "--host", "0.0.0.0", "--port", "8000"]
     portMappings = [{ containerPort = 8000, protocol = "tcp" }]
     environment  = local.common_env
-    secrets      = local.common_secrets
+    # TODO(read-only role): change to local.console_secrets once
+    # scripts/provision_console_role.py has been run and the commented
+    # console_database_url secret above is enabled. Until then the console
+    # shares the workers' write-capable credential and "read-only" is
+    # enforced only by console/queries.py containing nothing but SELECTs.
+    secrets = local.common_secrets
     logConfiguration = {
       logDriver = "awslogs"
       options = {

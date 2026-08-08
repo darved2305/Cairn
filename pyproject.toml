@@ -20,6 +20,11 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "anthropic>=0.40",
+    # Direct dependency, not incidental: console/sqltools.py speaks MCP's
+    # Streamable-HTTP transport to the CockroachDB Cloud MCP Server over it.
+    # It arrives transitively via `anthropic` today, but a module that imports
+    # a package should declare it.
+    "httpx>=0.27",
 ]
 
 [project.scripts]

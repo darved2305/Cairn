@@ -74,6 +74,25 @@ locals {
     "arn:aws:bedrock:${var.region_primary}::foundation-model/${var.bedrock_claude_model_id}",
     "arn:aws:bedrock:${var.region_primary}::foundation-model/${var.bedrock_titan_model_id}",
   ]
+
+  # `bedrock:InvokeModel` alone is NOT sufficient for the Claude calls this
+  # codebase actually makes. classify/llm.py and console/inspector.py both use
+  # `AnthropicBedrockMantle` — PLAN.md §2's locked call shape, required because
+  # Sonnet 5's `thinking`/`output_config` parameters are only accepted through
+  # that client — and that client targets the Bedrock *Mantle* endpoint, whose
+  # authorization action is `bedrock-mantle:CreateInference` on a project ARN,
+  # not `bedrock:InvokeModel` on a foundation-model ARN.
+  #
+  # Found empirically, not theorised: an IAM principal holding only
+  # InvokeModel gets `AccessDeniedException ... not authorized to perform:
+  # bedrock-mantle:CreateInference on resource: arn:aws:bedrock-mantle:
+  # <region>:<account>:project/default`. Without this statement the deployed
+  # console's Memory Inspector would 403 on every question while every other
+  # panel worked — the worst possible failure shape for a judged demo.
+  #
+  # Titan embeddings keep using the classic InvokeModel path (embeddings.py
+  # calls bedrock-runtime directly), so both statements are needed, not one.
+  bedrock_mantle_project_arn = "arn:aws:bedrock-mantle:${var.region_primary}:${data.aws_caller_identity.current.account_id}:project/default"
 }
 
 data "aws_iam_policy_document" "worker_task" {
@@ -95,6 +114,12 @@ data "aws_iam_policy_document" "worker_task" {
     sid       = "BedrockTwoModelsOnly"
     actions   = ["bedrock:InvokeModel"]
     resources = local.bedrock_model_arns
+  }
+
+  statement {
+    sid       = "BedrockMantleClaudeOnly"
+    actions   = ["bedrock-mantle:CreateInference"]
+    resources = [local.bedrock_mantle_project_arn]
   }
 
   statement {
@@ -132,6 +157,15 @@ data "aws_iam_policy_document" "console_task" {
     sid       = "BedrockTwoModelsOnly"
     actions   = ["bedrock:InvokeModel"]
     resources = local.bedrock_model_arns
+  }
+
+  # See the local's comment: the Memory Inspector agent
+  # (console/inspector.py) reaches Claude through AnthropicBedrockMantle, so
+  # InvokeModel by itself is not enough for the panel to work.
+  statement {
+    sid       = "BedrockMantleClaudeOnly"
+    actions   = ["bedrock-mantle:CreateInference"]
+    resources = [local.bedrock_mantle_project_arn]
   }
 }
 

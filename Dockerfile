@@ -68,8 +68,16 @@ FROM python:3.12-slim AS runtime
 # certs/cockroachlabs-lets-encrypt-chain.crt is that intermediate chain,
 # fetched from its own AIA URLs (ye2.i.lencr.org, ye.i.lencr.org) — public
 # certs, safe to commit, same mechanism as local-ca.crt above.
-COPY certs/cockroachlabs-lets-encrypt-chain.crt /usr/local/share/ca-certificates/cockroachlabs-lets-encrypt-chain.crt
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+COPY certs/cockroachlabs-lets-encrypt-chain.crt /tmp/cockroachlabs-lets-encrypt-chain.pem
+# update-ca-certificates accepts exactly one certificate per .crt file.  The
+# CockroachDB chain bundle contains YE2, Root YE, and ISRG Root X2; installing
+# the unsplit bundle silently skipped it and left Fargate unable to verify the
+# server.  Split it before updating the system store.
+RUN awk '/-----BEGIN CERTIFICATE-----/{n++} \
+         {print > ("/usr/local/share/ca-certificates/cockroachlabs-chain-" n ".crt")}' \
+        /tmp/cockroachlabs-lets-encrypt-chain.pem \
+    && rm /tmp/cockroachlabs-lets-encrypt-chain.pem \
+    && apt-get update && apt-get install -y --no-install-recommends ca-certificates \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 

@@ -621,6 +621,7 @@ fn explain_parses_every_nested_array_the_cli_emits() {
     assert!(explain.contradictions[0].quarantined);
     assert!(explain.quarantined_at.is_none());
     assert!(explain.not_found.is_none());
+    assert!(state.ui.show_explain, "an explain the operator asked for opens its overlay");
     // Downstream ids become completion candidates for /explain.
     assert!(state.knowledge.known_artifact_ids().contains(&"art-checkpoint".to_string()));
 

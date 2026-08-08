@@ -108,6 +108,11 @@ pub struct UiState {
     pub focus: Panel,
     pub zoomed: bool,
     pub show_help: bool,
+    /// The artifact-provenance overlay. Opened by the reducer when a real
+    /// `explain.completed`/`explain.not_found` arrives — an explain is
+    /// always something the operator explicitly asked for, so popping it
+    /// is answering the question, not interrupting.
+    pub show_explain: bool,
     pub input_mode: InputMode,
     pub input: String,
     /// Byte offset of the caret within `input`. Kept in bytes because the
@@ -134,6 +139,7 @@ impl Default for UiState {
             focus: Panel::Pipeline,
             zoomed: false,
             show_help: false,
+            show_explain: false,
             input_mode: InputMode::Normal,
             input: String::new(),
             cursor: 0,
@@ -222,6 +228,10 @@ impl UiState {
     pub fn escape(&mut self) -> bool {
         if self.show_help {
             self.show_help = false;
+            return true;
+        }
+        if self.show_explain {
+            self.show_explain = false;
             return true;
         }
         if self.input_mode != InputMode::Normal {

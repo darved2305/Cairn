@@ -54,6 +54,7 @@ dependencies = [
  "cairn-state",
  "crossbeam-channel",
  "ratatui",
+ "serde_json",
 ]
 
 [[package]]

@@ -104,17 +104,22 @@ def main(ctx: typer.Context) -> None:
 
 
 def _launch_tui() -> None:
-    """Spawn the built Node TUI (tui/dist/index.js) as a subprocess with
-    inherited stdio, so raw terminal I/O passes straight through, and
-    forward its exit code as our own. `CAIRN_PYTHON` tells the TUI which
-    interpreter to re-invoke for the real `cairn <subcommand>` calls it
-    makes as it runs (tui/src/connection/subprocess.ts) — the same venv
-    this bare invocation is already running under, not a PATH lookup."""
+    """Spawn the native TUI binary (tui-rs/crates/cairn-tui) as a
+    subprocess with inherited stdio, so raw terminal I/O passes straight
+    through, and forward its exit code as our own.
 
-    node_path = shutil.which("node")
-    if node_path is None:
+    The binary is self-contained, so there is no interpreter to locate
+    first — the Node dependency the TypeScript TUI carried is gone.
+    `CAIRN_PYTHON` still tells the TUI which interpreter to re-invoke for
+    the real `cairn <subcommand>` calls it makes as it runs
+    (tui-rs/crates/cairn-backend/src/lib.rs) — the same venv this bare
+    invocation is already running under, not a PATH lookup."""
+
+    entry = _resolve_tui_entry()
+    if entry is None:
         typer.echo(
-            "cairn: the interactive terminal needs Node.js (node not found on PATH).",
+            "cairn: the interactive terminal isn't built yet. "
+            "Run `cd tui-rs && cargo build --release`.",
             err=True,
         )
         typer.echo(
@@ -122,38 +127,47 @@ def _launch_tui() -> None:
         )
         raise typer.Exit(code=1)
 
-    entry = _resolve_tui_entry()
-    if entry is None:
-        typer.echo(
-            "cairn: the interactive terminal isn't built yet. "
-            "Run `cd tui && npm install && npm run build`.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
     env = dict(os.environ)
     env["CAIRN_PYTHON"] = sys.executable
-    completed = subprocess.run([node_path, str(entry)], env=env, check=False)
+    completed = subprocess.run([str(entry)], env=env, check=False)
     raise typer.Exit(code=completed.returncode)
 
 
 def _resolve_tui_entry() -> Path | None:
     """Bundled location first (an installed package ships
-    `cairn/_tui/dist/index.js` — see tui/README.md's packaging step),
-    falling back to this repo's own `tui/dist/index.js` for local
-    development straight from a git checkout. `CAIRN_TUI_ENTRY` is an
-    explicit override for both cases, mainly for tests."""
+    `cairn/_tui/cairn-tui[.exe]`), falling back to this repo's own
+    `tui-rs/target/` build for local development straight from a git
+    checkout. `CAIRN_TUI_ENTRY` is an explicit override for both cases,
+    mainly for tests.
+
+    A debug build is accepted as a last resort with a warning rather than
+    silently: it is several times slower to start and is not what a
+    packaged install would ever use, so an operator seeing sluggish
+    startup deserves to know which binary they are actually running."""
+
+    suffix = ".exe" if sys.platform == "win32" else ""
 
     override = os.environ.get("CAIRN_TUI_ENTRY")
     if override:
         path = Path(override)
         return path if path.is_file() else None
-    bundled = Path(__file__).resolve().parent / "_tui" / "dist" / "index.js"
+
+    bundled = Path(__file__).resolve().parent / "_tui" / f"cairn-tui{suffix}"
     if bundled.is_file():
         return bundled
-    dev = Path(__file__).resolve().parents[2] / "tui" / "dist" / "index.js"
-    if dev.is_file():
-        return dev
+
+    target = Path(__file__).resolve().parents[2] / "tui-rs" / "target"
+    release = target / "release" / f"cairn-tui{suffix}"
+    if release.is_file():
+        return release
+    debug = target / "debug" / f"cairn-tui{suffix}"
+    if debug.is_file():
+        typer.echo(
+            "cairn: using the debug build of the interactive terminal. "
+            "Run `cd tui-rs && cargo build --release` for the real thing.",
+            err=True,
+        )
+        return debug
     return None
 
 

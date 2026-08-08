@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -104,8 +106,8 @@ def test_a_real_subcommand_is_unaffected_by_the_bare_invocation_change() -> None
 def test_resolve_tui_entry_honors_explicit_override(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    entry = tmp_path / "index.js"
-    entry.write_text("// fake tui entry\n", encoding="utf-8")
+    entry = tmp_path / "cairn-tui"
+    entry.write_text("# fake native tui binary\n", encoding="utf-8")
     monkeypatch.setenv("CAIRN_TUI_ENTRY", str(entry))
     assert cli_module._resolve_tui_entry() == entry
 
@@ -113,26 +115,61 @@ def test_resolve_tui_entry_honors_explicit_override(
 def test_resolve_tui_entry_rejects_a_nonexistent_override(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("CAIRN_TUI_ENTRY", str(tmp_path / "does-not-exist.js"))
+    monkeypatch.setenv("CAIRN_TUI_ENTRY", str(tmp_path / "does-not-exist"))
     assert cli_module._resolve_tui_entry() is None
 
 
-def test_resolve_tui_entry_finds_this_repos_dev_build_when_present(
+def test_resolve_tui_entry_finds_this_repos_rust_build_when_present(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # The interactive terminal is the native `tui-rs` binary now — the
+    # bare invocation no longer depends on Node at all.
     monkeypatch.delenv("CAIRN_TUI_ENTRY", raising=False)
-    dev_entry = ROOT / "tui" / "dist" / "index.js"
+    suffix = ".exe" if sys.platform == "win32" else ""
+    target = ROOT / "tui-rs" / "target"
+    release = target / "release" / f"cairn-tui{suffix}"
+    debug = target / "debug" / f"cairn-tui{suffix}"
     resolved = cli_module._resolve_tui_entry()
-    if dev_entry.is_file():
-        assert resolved == dev_entry
+    if release.is_file():
+        assert resolved == release
+    elif debug.is_file():
+        assert resolved == debug, "a debug build is the last-resort fallback"
     else:
         assert resolved is None
 
 
-def test_launch_tui_fails_loudly_without_node(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_launch_tui_fails_loudly_when_the_binary_is_not_built(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # main() only calls _launch_tui() when stdout is a real TTY, which
     # CliRunner never provides — so exercise the guard function directly.
-    monkeypatch.setattr(cli_module.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(cli_module, "_resolve_tui_entry", lambda: None)
     with pytest.raises(typer.Exit) as excinfo:
         cli_module._launch_tui()
     assert excinfo.value.exit_code == 1
+
+
+def test_launch_tui_spawns_the_native_binary_and_pins_the_interpreter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entry = tmp_path / "cairn-tui"
+    entry.write_text("# fake native tui binary\n", encoding="utf-8")
+    monkeypatch.setattr(cli_module, "_resolve_tui_entry", lambda: entry)
+    captured: dict[str, object] = {}
+
+    def fake_run(argv: list[str], env: dict[str, str], check: bool):  # type: ignore[no-untyped-def]
+        captured["argv"] = argv
+        captured["env"] = env
+        return subprocess.CompletedProcess(argv, 0)
+
+    monkeypatch.setattr(cli_module.subprocess, "run", fake_run)
+    with pytest.raises(typer.Exit) as excinfo:
+        cli_module._launch_tui()
+
+    assert excinfo.value.exit_code == 0
+    # The binary is spawned directly — no `node` in front of it.
+    assert captured["argv"] == [str(entry)]
+    # The TUI re-invokes `<CAIRN_PYTHON> -m cairn.cli ...` for real work, so
+    # it must inherit this exact interpreter rather than resolving one off
+    # PATH and silently using a different venv.
+    assert captured["env"]["CAIRN_PYTHON"] == sys.executable  # type: ignore[index]

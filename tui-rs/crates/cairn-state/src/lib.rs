@@ -304,6 +304,7 @@ impl AppState {
             "explain.not_found" => {
                 let id = event.display_field("artifact_id").unwrap_or_default();
                 self.explain = ExplainState { not_found: Some(id.clone()), ..Default::default() };
+                self.ui.show_explain = true;
                 self.transcript
                     .push(TranscriptKind::Error, format!("unknown artifact_id={id}"), &timestamp);
             }
@@ -833,6 +834,7 @@ impl AppState {
             contradictions,
             not_found: None,
         };
+        self.ui.show_explain = true;
     }
 
     fn apply_doctor(&mut self, event: &CairnEvent, timestamp: &str) {

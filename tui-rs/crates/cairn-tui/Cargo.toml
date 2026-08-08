@@ -19,3 +19,8 @@ crossbeam-channel.workspace = true
 # dependency: a second crossterm in the tree would silently split the
 # backend's event types from the ones ratatui was compiled against.
 ratatui.workspace = true
+
+[dev-dependencies]
+# Only the render tests need this: they build real event envelopes so the
+# panels are exercised against the payload shapes the backend emits.
+serde_json.workspace = true

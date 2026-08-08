@@ -1,0 +1,21 @@
+[package]
+name = "cairn-tui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Cairn's interactive terminal — the persistent multi-panel view bare `cairn` launches."
+
+[[bin]]
+name = "cairn-tui"
+path = "src/main.rs"
+
+[dependencies]
+cairn-protocol.workspace = true
+cairn-backend.workspace = true
+cairn-state.workspace = true
+crossbeam-channel.workspace = true
+# crossterm is used via `ratatui::crossterm`, deliberately not as a direct
+# dependency: a second crossterm in the tree would silently split the
+# backend's event types from the ones ratatui was compiled against.
+ratatui.workspace = true

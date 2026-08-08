@@ -1,0 +1,12 @@
+[package]
+name = "cairn-backend"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Spawns real `cairn <args>` invocations and tails their NDJSON event file."
+
+[dependencies]
+cairn-protocol.workspace = true
+crossbeam-channel.workspace = true
+uuid.workspace = true

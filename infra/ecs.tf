@@ -169,6 +169,10 @@ locals {
     { name = "CAIRN_MODE", value = var.cairn_mode },
     { name = "CAIRN_APPROVAL_USD", value = tostring(var.cairn_approval_usd) },
     { name = "CAIRN_AWS_REGION", value = var.region_primary },
+    # stage_env.py includes this immutable build identity in every work key.
+    # Without it, an ECS image honestly reports "local-dev" and can reuse an
+    # artifact produced by different dependencies or source.
+    { name = "CAIRN_IMAGE_DIGEST", value = var.container_image_tag },
   ]
 
   common_secrets = [

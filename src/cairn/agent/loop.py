@@ -97,6 +97,22 @@ class Refusal(RuntimeError):
     (with a non-zero exit) before any compute happens."""
 
 
+class UpstreamArtifactUnavailable(RuntimeError):
+    """An S3 read failed for a specific artifact adopted from memory.
+
+    This explicit attribution is what makes quarantine causal. A generic
+    downstream exception (for example, a missing independently-vendored raw
+    dataset) is not evidence against whichever upstream happened to be
+    reused earlier in the run.
+    """
+
+    def __init__(self, artifact: ArtifactHandle, detail: str) -> None:
+        self.artifact_id = artifact.artifact_id
+        super().__init__(
+            f"upstream artifact {artifact.artifact_id} ({artifact.s3_uri}) unavailable: {detail}"
+        )
+
+
 @dataclass(frozen=True)
 class ArtifactHandle:
     artifact_id: str
@@ -125,6 +141,14 @@ class StageOutcome:
     artifact: ArtifactHandle | None
     decision_id: uuid.UUID | None
     detail: str
+
+
+def _get_upstream_bytes(bucket: str, artifact: ArtifactHandle) -> bytes:
+    key = artifact.s3_uri.split("/", 3)[-1]
+    try:
+        return s3.get_bytes(bucket, key)
+    except Exception as exc:
+        raise UpstreamArtifactUnavailable(artifact, str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -795,7 +819,7 @@ def _act_features(
 
     dataset_handle = upstream["dataset"].artifact
     assert dataset_handle is not None
-    dataset_bytes = s3.get_bytes(bucket, dataset_handle.s3_uri.split("/", 3)[-1])
+    dataset_bytes = _get_upstream_bytes(bucket, dataset_handle)
 
     features_config = stage_features.read_config(config.stage("features", record_as="features"))
     model_name = str(features_config["model_name"])
@@ -817,7 +841,8 @@ def _act_features(
             if candidate_dataset_ref == dataset_handle.artifact_id:
                 p1 = p1_env.run(candidate.env_fingerprint, environment.env_fingerprint)
                 if p1.passed:
-                    candidate_bytes = s3.get_bytes(bucket, candidate.s3_uri.split("/", 3)[-1])
+                    candidate_handle = ArtifactHandle.from_row(candidate)
+                    candidate_bytes = _get_upstream_bytes(bucket, candidate_handle)
                     doc_ids, embeddings = stage_features.read_parquet(candidate_bytes)
                     df = pd.read_parquet(pa.BufferReader(dataset_bytes)).sort_values(
                         "doc_id", kind="stable"
@@ -906,8 +931,8 @@ def _act_generic(
         dataset_handle = upstream["dataset"].artifact
         features_handle = upstream["features"].artifact
         assert dataset_handle is not None and features_handle is not None
-        dataset_bytes = s3.get_bytes(bucket, dataset_handle.s3_uri.split("/", 3)[-1])
-        features_bytes = s3.get_bytes(bucket, features_handle.s3_uri.split("/", 3)[-1])
+        dataset_bytes = _get_upstream_bytes(bucket, dataset_handle)
+        features_bytes = _get_upstream_bytes(bucket, features_handle)
         joined = stage_train.join_dataset_and_features(dataset_bytes, features_bytes)
         train_config = stage_train.read_config(config.stage("train", record_as="checkpoint"))
         checkpoint_artifact = _run_checkpoint_with_fragments(
@@ -938,9 +963,9 @@ def _act_generic(
         features_handle = upstream["features"].artifact
         checkpoint_handle = upstream["checkpoint"].artifact
         assert dataset_handle and features_handle and checkpoint_handle
-        dataset_bytes = s3.get_bytes(bucket, dataset_handle.s3_uri.split("/", 3)[-1])
-        features_bytes = s3.get_bytes(bucket, features_handle.s3_uri.split("/", 3)[-1])
-        checkpoint_bytes = s3.get_bytes(bucket, checkpoint_handle.s3_uri.split("/", 3)[-1])
+        dataset_bytes = _get_upstream_bytes(bucket, dataset_handle)
+        features_bytes = _get_upstream_bytes(bucket, features_handle)
+        checkpoint_bytes = _get_upstream_bytes(bucket, checkpoint_handle)
         joined = stage_train.join_dataset_and_features(dataset_bytes, features_bytes)
         # input_dim/hidden_dim/num_labels must match the checkpoint's own
         # training shape, not stage_eval.run's module-level defaults —
@@ -1123,19 +1148,19 @@ def run_pipeline(
                 {"stage": spec.name, "error_class": type(exc).__name__, "error": str(exc)},
                 run_id=str(run_id),
             )
-            reused_upstream = [
-                name
-                for name, o in upstream.items()
-                if o.action == Action.REUSE and o.artifact is not None
-            ]
-            if reused_upstream:
-                culprit = upstream[reused_upstream[-1]].artifact
-                assert culprit is not None
+            # Quarantine needs direct evidence against an artifact. The old
+            # fallback blamed the last reused upstream for *any* exception;
+            # a missing independent `datasets/.../raw.parquet` therefore
+            # quarantined a healthy env artifact whose S3 object existed.
+            # Upstream reads now identify their artifact explicitly; all
+            # other failures remain learned negative memory, without a false
+            # causal claim.
+            if isinstance(exc, UpstreamArtifactUnavailable):
                 record_contradiction(
                     pool,
-                    culprit.artifact_id,
+                    exc.artifact_id,
                     run_id,
-                    evidence=f"{spec.name} stage failed downstream of reused artifact {culprit.artifact_id}",
+                    evidence=f"{spec.name} stage could not read {exc}",
                 )
             emit_event(
                 "run.failed",

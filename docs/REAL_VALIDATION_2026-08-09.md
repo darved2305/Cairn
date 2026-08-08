@@ -141,3 +141,112 @@ appended below as they are obtained.
 - Python unit/property suite: 178/178 PASS.
 - Ruff: PASS. Strict mypy over the 53 source files: PASS.
 - React typecheck and production build: PASS.
+
+### Container TLS and deployed revision 4
+
+- The first rebuilt image still failed TLS. Inspection showed
+  `update-ca-certificates` had skipped the committed three-certificate file:
+  Debian requires one certificate per `.crt`. The Dockerfile now splits YE2,
+  Root YE, and ISRG Root X2 before updating the store; its build log reported
+  three certificates added.
+- psycopg's bundled libpq/OpenSSL did not honor `sslrootcert=system` on this
+  image. With the explicit URL-encoded
+  `/etc/ssl/certs/ca-certificates.crt`, the same image connected and returned
+  CockroachDB CCL v26.2.5. Both existing DB secrets were rotated in place to
+  that path. Terraform variables now reject workstation paths and `system` so
+  the defect cannot silently recur.
+- Image `44cc380` was pushed to the existing ECR repository under its immutable
+  tag and `latest`, digest
+  `sha256:166753c17fd61fa8aeafd1f1a143e278b076e5ddf057b6a3dd13ad974f64b618`.
+- Existing task families only were revised: east worker revision 4, west
+  worker revision 4, console revision 4. The existing console service reached
+  ECS `COMPLETED` rollout state with desired/running 1/1.
+
+### Real cross-region race — PASS
+
+- Final work key: `race-ecs-884f679e43e64b7989e32373cb57b335`.
+- East task:
+  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/59980ddf07204e0cb48f6f0cef1995cc`.
+- West task:
+  `arn:aws:ecs:us-west-2:357199110611:task/cairn-us-west-2/a46d738b0d0a42aa916e1ae27c50f967`.
+- Both tasks exited 0. The real CockroachDB row ended `SUCCEEDED`, winner
+  `ip-172-31-6-93.us-west-2.compute.internal-1`, region `us-west-2`, fence 1,
+  artifact `c9d0e8a33f57d11c036699f2037d9ef7f8a463f4a6334e5e179632ab9fa944d7`.
+
+### Deployed endpoint matrix on revision 4
+
+- Frontend document, its hashed JavaScript asset, and its hashed CSS asset:
+  all HTTP 200.
+- Health, pipeline, default/product decisions, decision detail, validation
+  decisions, default/product claims, validation claims, Inspector status,
+  savings, demo reset, demo run, and demo state: all HTTP 200.
+- Titan search: HTTP 503 with the real Bedrock `ValidationException: Operation
+  not allowed`; no guessed results. Inspector question: HTTP 503 with the real
+  Claude Sonnet account permission error; no fabricated answer.
+- Demo run declared `mode=replay`, `writes_to_database=false`, and
+  `launches_compute=false`, matching its actual behavior.
+
+### Defect 5 — graph persistence used thousands of cloud round trips
+
+- Reproduction: `cairn plan --persist-graph` exceeded two minutes. Live SQL
+  triage found one Cairn SERIALIZABLE transaction open for 2m47s with 658
+  statements, zero retries; it was still processing 480 units plus 1,801
+  edges one statement at a time.
+- The test process was stopped, rolling back its transaction. The two insert
+  shapes now use psycopg 3 pipelined `executemany`; DELETE and both INSERT
+  shapes passed live `EXPLAIN`.
+- Exact retest persisted 480 code units and 1,801 edges at commit `44cc380`
+  in 22.247 seconds and exited 0.
+
+### Real workload deployment defects and remediation
+
+- First env task
+  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/da9612854b7442ac8d8b8d7a9af0ba84`
+  reached a real PutObject and failed because the worker role omitted `env/*`.
+  The existing inline role policy and Terraform source were updated; IAM
+  simulation now returns `allowed` for env PutObject and GetObject.
+- Exact env retest task
+  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/b9f4a46a9fe94efd8ce3cc82be36de46`
+  exited 0 with RECOMPUTE. Artifact
+  `7e80c7ee71ae4e0773c8cc08718457113d9c28ef4fc5aa0536b4729095d6342e`
+  was observed by `head-object` at its real S3 key, 1,652 bytes.
+- Dataset task
+  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/9b2d055366304535b7ab07a6bedcd38f`
+  then failed with a real NoSuchKey because `cairn.yaml` still named the
+  explicitly provisional `unvendored-20news-4cat-v1` snapshot.
+- That unrelated missing input also exposed a logic bug: the loop blindly
+  quarantined the last reused upstream for every downstream exception, even
+  though the env object's S3 HEAD succeeded. Quarantine is now limited to a
+  typed failure from reading a specific upstream artifact. Generic independent
+  input failures still enter negative memory but cannot invent causal blame.
+- The false quarantine was cleared through the real audited
+  `cairn unquarantine` command. `cairn explain` shows both the original
+  contradiction and the evidence-bearing unquarantine entry.
+- The actual 20 Newsgroups snapshot was fetched in Linux and uploaded to the
+  existing bucket: 3,890 documents, four categories, 3,279,707 Parquet bytes,
+  SHA-256 `790c5cb1132d65ab5e47e552b356def12ae6d2dc790bda51981c1a4289780dbe`.
+  S3 HEAD confirms the object at
+  `datasets/20news-4cat-v1/raw.parquet`; `cairn.yaml` now names that real
+  version.
+- ECS task definitions also omitted `CAIRN_IMAGE_DIGEST`, so deployed
+  environment manifests honestly fell back to `local-dev` and could collide
+  across images. Terraform now injects the immutable container image tag into
+  every task. The next worker revision applies it before the cold full run.
+
+### CLI observations so far
+
+- `plan` JSON: PASS; `plan --persist-graph` table: PASS after optimization.
+- `unquarantine` and `explain <real env artifact>`: PASS, including real S3
+  URI, inputs, decision, contradiction, and audit reversal.
+- `memory why-blocked`: PASS against the live decision ledger.
+- `memory search`: clean exit 1 on the host's native Bedrock/OpenSSL failure;
+  no traceback, crash, hang, or guessed result. The deployed Linux path above
+  separately proves the underlying account-level Titan denial.
+
+### Current local gates before the final workload image
+
+- Python unit/property suite: 180/180 PASS.
+- Ruff: PASS. Strict mypy over 53 source files: PASS.
+- Terraform CLI is not installed on this host, so `terraform fmt/validate`
+  cannot be run locally; the HCL changes remain pending CI/another Terraform
+  installation rather than being called green.

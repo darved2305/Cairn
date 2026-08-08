@@ -142,8 +142,24 @@ def persist_code_graph(
 
     def _tx(cur: psycopg.Cursor) -> tuple[int, int]:
         cur.execute("DELETE FROM code_edges WHERE commit_sha=%s RETURNING NOTHING", (commit_sha,))
-        for unit in sorted(graph.units.values(), key=lambda value: value.unit_id):
-            cur.execute(
+        unit_rows = [
+            (
+                unit.unit_id,
+                unit.module,
+                unit.qualname,
+                unit.ast_digest,
+                unit.docstring_digest,
+                unit.is_private,
+                commit_sha,
+            )
+            for unit in sorted(graph.units.values(), key=lambda value: value.unit_id)
+        ]
+        if unit_rows:
+            # psycopg 3 pipelines executemany() instead of waiting for a
+            # CockroachDB round trip after every code unit.  The previous
+            # loop held this SERIALIZABLE transaction open for minutes on a
+            # real cloud cluster (hundreds of sequential statements).
+            cur.executemany(
                 """
                 INSERT INTO code_units
                   (unit_id, module, qualname, ast_digest, docstring_digest,
@@ -158,18 +174,15 @@ def persist_code_graph(
                   commit_sha=excluded.commit_sha
                 RETURNING NOTHING
                 """,
-                (
-                    unit.unit_id,
-                    unit.module,
-                    unit.qualname,
-                    unit.ast_digest,
-                    unit.docstring_digest,
-                    unit.is_private,
-                    commit_sha,
-                ),
+                unit_rows,
             )
-        for edge in sorted(graph.edges):
-            cur.execute(
+
+        edge_rows = [
+            (commit_sha, edge.src_unit, edge.dst_unit, edge.edge_kind)
+            for edge in sorted(graph.edges)
+        ]
+        if edge_rows:
+            cur.executemany(
                 """
                 INSERT INTO code_edges
                   (commit_sha, src_unit, dst_unit, edge_kind)
@@ -177,7 +190,7 @@ def persist_code_graph(
                 ON CONFLICT (commit_sha, src_unit, dst_unit, edge_kind) DO NOTHING
                 RETURNING NOTHING
                 """,
-                (commit_sha, edge.src_unit, edge.dst_unit, edge.edge_kind),
+                edge_rows,
             )
         return len(graph.units), len(graph.edges)
 

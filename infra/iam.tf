@@ -66,6 +66,7 @@ locals {
   # (workload/stage_*.py, storage/s3.py, scripts/vendor_dataset.py) — not a
   # bucket-wide grant.
   s3_object_prefixes = [
+    "env/*",
     "dataset/*",
     "features/*",
     "checkpoint/*",

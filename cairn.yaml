@@ -1,10 +1,10 @@
 version: 1
 
 data:
-  # Replaced by scripts/vendor_dataset.py with the content digest of the
-  # vendored Parquet snapshot. Keeping the value explicit makes a local plan
-  # honest: it is provisional until the dataset has actually been vendored.
-  snapshot_digest: unvendored-20news-4cat-v1
+  # Versioned snapshot uploaded by scripts/vendor_dataset.py. The object is
+  # s3://cairn-demo-357199110611/datasets/20news-4cat-v1/raw.parquet in the
+  # deployed demo environment; downstream work keys track this value.
+  snapshot_digest: 20news-4cat-v1
 
 dataset:
   test_every_nth: 5

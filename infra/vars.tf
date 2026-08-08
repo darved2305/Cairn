@@ -30,12 +30,22 @@ variable "cairn_database_url" {
   description = "CockroachDB Cloud connection string. Never has a default — must be supplied via TF_VAR_cairn_database_url or a .auto.tfvars file that is gitignored, and is stored only in Secrets Manager, never in a container image or task definition env var."
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = can(regex("sslrootcert=(%2[Ff]etc%2[Ff]ssl%2[Ff]certs%2[Ff]ca-certificates\\.crt|/etc/ssl/certs/ca-certificates\\.crt)", var.cairn_database_url))
+    error_message = "ECS database URLs must set sslrootcert=/etc/ssl/certs/ca-certificates.crt (URL-encoded is accepted); do not deploy a workstation path or sslrootcert=system."
+  }
 }
 
 variable "cairn_console_database_url" {
   description = "The console's OWN read-only (cairn_console_ro) CockroachDB connection string — scripts/provision_console_role.py prints it. Never has a default, same handling as cairn_database_url."
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = can(regex("sslrootcert=(%2[Ff]etc%2[Ff]ssl%2[Ff]certs%2[Ff]ca-certificates\\.crt|/etc/ssl/certs/ca-certificates\\.crt)", var.cairn_console_database_url))
+    error_message = "ECS console URLs must set sslrootcert=/etc/ssl/certs/ca-certificates.crt (URL-encoded is accepted); do not deploy a workstation path or sslrootcert=system."
+  }
 }
 
 variable "cairn_approval_usd" {

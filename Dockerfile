@@ -33,6 +33,23 @@ COPY README.md ./
 # have no reason to ship to production.
 RUN uv sync --frozen --no-dev
 
+# The console's React SPA. PROJECT.md §6.1 commits to "one image, one deploy
+# path", so the built bundle is baked into this same image rather than being
+# served from a second container or an S3/CloudFront origin of its own —
+# `cairn.console.api` mounts it from /app/src/cairn/console/static and serves
+# the API and the app from one port.
+#
+# Node appears only in this stage. The runtime image below copies the emitted
+# static files and never sees a node_modules, so the production image gains a
+# frontend without gaining a JavaScript runtime.
+FROM node:22-slim AS frontend
+
+WORKDIR /ui
+COPY console/frontend/package.json console/frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY console/frontend/ ./
+RUN npm run build
+
 FROM python:3.12-slim AS runtime
 
 # PYTHONHASHSEED must be set before the interpreter starts —
@@ -45,6 +62,7 @@ ENV PYTHONHASHSEED=0 \
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
+COPY --from=frontend /ui/dist /app/src/cairn/console/static
 COPY cairn.yaml /app/cairn.yaml
 COPY db/migrations /app/db/migrations
 

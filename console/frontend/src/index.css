@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+/* Cairn's own design tokens.
+ *
+ * The layout system this console borrows from modern data-platform marketing
+ * sites — a light-dominant page, generous section rhythm, one accent colour
+ * carrying every CTA and active state, stat cards as a four-up grid, a
+ * horizontal tab strip over full-width product imagery — is a structural
+ * pattern, not anyone's property. Every colour, typeface, word, and number
+ * below is Cairn's.
+ *
+ * Palette rationale: a cairn is a stack of stones, so the neutrals are warm
+ * stone rather than cool grey, and the accent is the deep teal of wet slate.
+ * Deliberately not the default "AI-generated" look — no purple gradient, no
+ * Inter/Roboto, no cliched hero glow.
+ */
+@theme {
+  --font-sans: "Söhne", "Inter Tight", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-mono: "Berkeley Mono", ui-monospace, "SFMono-Regular", "JetBrains Mono",
+    "Cascadia Mono", Consolas, monospace;
+
+  /* stone neutrals */
+  --color-paper: #faf8f4;
+  --color-paper-2: #f2efe8;
+  --color-ink: #12100d;
+  --color-ink-2: #3f3a33;
+  --color-ink-3: #6f675c;
+  --color-rule: #e2ddd2;
+
+  /* accent — wet slate teal */
+  --color-accent: #0e5c53;
+  --color-accent-2: #12776b;
+  --color-accent-ink: #052e2a;
+  --color-accent-wash: #e6f2f0;
+
+  /* verdict semantics — these are data encodings, not decoration, and they
+   * are the same five values reuse_decisions.verdict can hold. */
+  --color-reuse: #0b6b3f;
+  --color-reuse-wash: #e6f3ec;
+  --color-recompute: #9a5b06;
+  --color-recompute-wash: #fbf0dd;
+  --color-refused: #a51d3c;
+  --color-refused-wash: #fbe9ee;
+  --color-subscribed: #14557f;
+  --color-subscribed-wash: #e6f0f7;
+  --color-resumed: #5a3a9e;
+  --color-resumed-wash: #efeaf9;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "kern", "liga", "cv05";
+}
+
+/* Long identifiers (work keys, content-addressed artifact ids, SQL) must be
+ * able to scroll inside their own container rather than widening the page. */
+.scroll-x {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

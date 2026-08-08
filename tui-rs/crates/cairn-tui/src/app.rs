@@ -985,6 +985,52 @@ mod tests {
         println!("schema:   {:?}", app.state.doctor.schema_detail);
     }
 
+    /// Drives a real command to completion, returning the app for
+    /// inspection. Shared by the live tests below.
+    #[cfg(test)]
+    fn drive_live(app: &mut App, seconds: u64) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+        while std::time::Instant::now() < deadline {
+            app.tick();
+            app.drain_backend();
+            if !app.state.session.running {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        app.drain_backend();
+    }
+
+    /// `/memory` against the real backend. Deliberately does *not* assert
+    /// that the search succeeds: at the time of writing this account's
+    /// Bedrock access to Titan embeddings is `NOT_AUTHORIZED`, which is an
+    /// external condition, not a TUI bug. What must hold either way is
+    /// that the TUI ends up in a coherent state — matches shown, or the
+    /// failure surfaced — and never wedged mid-command.
+    #[test]
+    #[ignore = "needs a live CockroachDB cluster and a cairn-importable Python"]
+    fn live_memory_search_either_answers_or_surfaces_its_failure() {
+        let mut app = App::new(ThemeName::CairnDark);
+        app.dispatch("memory", "cuda out of memory");
+        // Generous: a Bedrock call that is going to be refused still spends
+        // over a minute in botocore's connect/retry path before it says so.
+        drive_live(&mut app, 420);
+
+        assert!(!app.state.session.running, "the command never finished");
+        let code = app.state.session.last_exit_code.expect("an exit code was reported");
+        if code == 0 {
+            assert!(app.state.memory.searched, "a clean exit must have produced a search result");
+        } else {
+            // A failure with no events at all: stderr is the only honest
+            // thing we have, and it must have reached both the log and the
+            // status line rather than leaving a silent blank panel.
+            assert!(!app.state.session.stderr_tail.is_empty(), "a failure told us nothing");
+            let status = app.state.ui.status_message.clone().expect("failure surfaced to the user");
+            assert!(status.contains(&format!("exited {code}")));
+            println!("memory search failed as expected ({code}): {status}");
+        }
+    }
+
     #[test]
     fn a_spawn_failure_is_reported_and_does_not_wedge_the_running_flag() {
         let mut app = App::for_test();

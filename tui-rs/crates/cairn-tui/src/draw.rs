@@ -109,7 +109,7 @@ fn draw_full(frame: &mut Frame, area: Rect, app: &mut App) {
         .iter()
         // Measured from the card the panel will actually draw, so the two
         // can never disagree about how tall a stage is.
-        .map(|node| pipeline_card(node, &app.theme, app.state.now_ms(), false).len() as u16)
+        .map(|node| pipeline_card(node, &app.theme, app.state.now_ms(), false, 24).len() as u16)
         .max()
         .unwrap_or(3);
     let ceiling = (area.height as u32 * 35 / 100) as u16;
@@ -405,7 +405,7 @@ fn draw_pipeline(frame: &mut Frame, area: Rect, app: &App) {
             }
         };
         frame.render_widget(
-            Paragraph::new(pipeline_card(node, theme, state.now_ms(), is_selected)).style(fill),
+            Paragraph::new(pipeline_card(node, theme, state.now_ms(), is_selected, cell.width as usize)).style(fill),
             cell,
         );
         if index + 1 < node_count {
@@ -438,6 +438,7 @@ fn pipeline_card<'a>(
     theme: &Theme,
     now_ms: u64,
     selected: bool,
+    width: usize,
 ) -> Vec<Line<'a>> {
     let mut lines = Vec::new();
     let marker = if selected { "▸" } else { " " };
@@ -490,14 +491,18 @@ fn pipeline_card<'a>(
     if let Some(size) = node.size_bytes {
         lines.push(Line::from(Span::styled(format!("  {}", fmt_bytes(size)), theme.dim())));
     }
+    // Truncate to the card's real width rather than a fixed guess, so a
+    // wide terminal shows more of the error instead of eliding text that
+    // would have fitted. The full text is always in the log panel.
+    let room = width.saturating_sub(2).max(8);
     if let Some(error) = &node.error {
         lines.push(Line::from(Span::styled(
-            format!("  {}", short(error, 20)),
+            format!("  {}", short(error, room)),
             theme.fg(theme.colors.error),
         )));
     }
     if let Some(id) = &node.artifact_id {
-        lines.push(Line::from(Span::styled(format!("  {}", short(id, 12)), theme.dim())));
+        lines.push(Line::from(Span::styled(format!("  {}", short(id, room)), theme.dim())));
     }
     lines
 }
@@ -627,6 +632,16 @@ fn claim_card<'a>(race: &ClaimRace, theme: &Theme, now_ms: u64, width: usize) ->
         }
         None => {
             let mut spans = vec![Span::styled("  result ", theme.muted())];
+            // A failed claim carries no artifact, duration or size, so
+            // without this the line renders as a bare "result" and says
+            // nothing. What it means is worth a sentence: the key is free
+            // again, which is exactly what the next contender acts on.
+            if race.phase == ClaimPhase::Failed {
+                spans.push(Span::styled(
+                    "failed — the work_key is free for the next contender",
+                    theme.fg(theme.colors.error),
+                ));
+            }
             if let Some(state) = &race.terminal_state {
                 spans.push(Span::styled(format!("{state} "), phase_style(race.phase, theme)));
             }
@@ -1457,6 +1472,50 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(150, 44)).unwrap();
         terminal.draw(|frame| draw(frame, &mut app)).unwrap();
         println!("{}", rendered(&terminal));
+    }
+
+    /// A real `cairn run --all` against the live cluster, rendered. This is
+    /// the case the old transcript UI handled worst: by the end of a run
+    /// every stage's verdict had scrolled away. Here the finished DAG, the
+    /// claims it took and the decisions it recorded are all still on screen
+    /// together.
+    #[test]
+    #[ignore = "needs a live CockroachDB cluster and a cairn-importable Python"]
+    fn live_run_all_leaves_every_stage_visible_at_once() {
+        let mut app = App::new(ThemeName::CairnDark);
+        app.dispatch("run", "--all");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(900);
+        while std::time::Instant::now() < deadline {
+            app.tick();
+            app.drain_backend();
+            if !app.state.session.running {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        app.drain_backend();
+        app.tick();
+
+        assert!(!app.state.session.running, "the run never finished");
+        let mut terminal = Terminal::new(TestBackend::new(150, 44)).unwrap();
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+        println!("{}", rendered(&terminal));
+        println!(
+            "exit={:?} events={} decisions={} claims={}",
+            app.state.session.last_exit_code,
+            app.state.events_seen,
+            app.state.ledger.entries.len(),
+            app.state.claims.total()
+        );
+
+        assert!(app.state.events_seen > 0, "a real run emitted no events at all");
+        // Whatever the outcome, no stage may be left mid-flight: the panel
+        // showing a permanently-spinning stage would be a lie about state.
+        assert!(
+            app.state.pipeline.current_stage.is_none(),
+            "a finished run left {:?} still marked running",
+            app.state.pipeline.current_stage
+        );
     }
 
     #[test]

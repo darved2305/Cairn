@@ -36,6 +36,11 @@ data "aws_iam_policy_document" "ecs_execution_secrets" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [aws_secretsmanager_secret.database_url.arn]
   }
+  statement {
+    sid       = "ReadConsoleDatabaseUrlSecret"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [aws_secretsmanager_secret.console_database_url.arn]
+  }
 }
 
 resource "aws_iam_role_policy" "ecs_execution_secrets" {

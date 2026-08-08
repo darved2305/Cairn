@@ -32,6 +32,12 @@ variable "cairn_database_url" {
   sensitive   = true
 }
 
+variable "cairn_console_database_url" {
+  description = "The console's OWN read-only (cairn_console_ro) CockroachDB connection string — scripts/provision_console_role.py prints it. Never has a default, same handling as cairn_database_url."
+  type        = string
+  sensitive   = true
+}
+
 variable "cairn_approval_usd" {
   description = "Dollar threshold above which the agent escalates instead of launching (action 9, ESCALATE) — PROJECT.md §6.4."
   type        = number

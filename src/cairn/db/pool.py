@@ -42,6 +42,13 @@ def get_pool(database_url: str | None = None, *, app_name: str = "cairn") -> Con
             max_size=10,
             max_lifetime=1800,  # 30 min, matches the skill's HikariCP maxLifetime guidance
             max_idle=600,
+            # Default is 30s — on a real outage (DNS failure, host
+            # unreachable) that means every checkout silently burns 30s
+            # before PoolTimeout even reaches db/txn.py's retry loop. 10s
+            # is still generous for a real CockroachDB Cloud TLS handshake
+            # under normal conditions, and makes a genuine failure surface
+            # in seconds instead of tens of seconds to a CLI user.
+            timeout=10,
             kwargs={"application_name": app_name},
             open=True,
         )

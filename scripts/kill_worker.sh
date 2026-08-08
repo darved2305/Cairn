@@ -44,13 +44,31 @@ _run_task() {
     --query 'tasks[0].taskArn' --output text
 }
 
+_wait_running() {
+  local task_arn="$1"
+  local deadline=$((SECONDS + 90))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    local status
+    status="$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$task_arn" --region "$REGION" \
+      --query 'tasks[0].lastStatus' --output text)"
+    if [ "$status" = "RUNNING" ] || [ "$status" = "STOPPED" ]; then
+      return 0
+    fi
+    sleep 3
+  done
+  echo "task $task_arn did not reach RUNNING within 90s" >&2
+  return 1
+}
+
 echo "work_key = $WORK_KEY"
 echo "launching worker A (holding ${HOLD_SECONDS}s)..."
 TASK_ARN_A="$(_run_task "$HOLD_SECONDS")"
 echo "worker A: $TASK_ARN_A"
 
-echo "waiting 15s for worker A to acquire the claim..."
-sleep 15
+echo "waiting for worker A's Fargate task to actually reach RUNNING (cold-start image pull can exceed a fixed sleep)..."
+_wait_running "$TASK_ARN_A"
+echo "worker A is running — waiting 5s for it to acquire the claim..."
+sleep 5
 
 echo "killing worker A mid-run (StopTask)"
 aws ecs stop-task \

@@ -26,6 +26,21 @@ resource "aws_security_group" "alb" {
     prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront_origin_facing.id]
   }
 
+  # TEMPORARY — remove once this AWS account clears CloudFront's new-account
+  # verification gate (see cloudfront.tf's comment / var.create_cloudfront).
+  # Until then CloudFront can't be created, so the CloudFront-only rule
+  # above leaves the console completely unreachable — this is the only
+  # path to a public demo URL in the meantime. Read-only, no-auth API
+  # (PLAN.md §8 open decision 4), so the exposure is low, but it's still a
+  # deliberate, temporary override of the documented ingress design.
+  ingress {
+    description = "TEMP public HTTP - remove once CloudFront is live"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -50,10 +65,7 @@ resource "aws_lb_target_group" "console" {
   target_type = "ip"
 
   health_check {
-    # "/" is a placeholder until the D8 FastAPI console adds a real
-    # health endpoint — the service will show unhealthy until that
-    # lands, which is honest: there is no running app to be healthy yet.
-    path                = "/"
+    path                = "/api/health"
     healthy_threshold   = 2
     unhealthy_threshold = 5
     interval            = 30

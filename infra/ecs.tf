@@ -220,10 +220,10 @@ resource "aws_ecs_task_definition" "console" {
     name      = "console"
     image     = local.image
     essential = true
-    # FastAPI console server lands D8 — this command is a placeholder
-    # until then so `terraform apply` produces a task definition that
-    # exists and is referenceable, not a working service yet.
-    command      = ["cairn", "--help"]
+    command = [
+      "uvicorn", "cairn.console.api:app",
+      "--host", "0.0.0.0", "--port", "8000",
+    ]
     portMappings = [{ containerPort = 8000, protocol = "tcp" }]
     environment  = local.common_env
     secrets      = local.common_secrets
@@ -238,31 +238,25 @@ resource "aws_ecs_task_definition" "console" {
   }])
 }
 
-# The ECS *service* itself is deliberately NOT created yet. `cairn --help`
-# (the console task definition's placeholder command, above) exits
-# immediately — a Service with desired_count=1 would treat that as a
-# crash and restart it in a loop forever, burning Fargate minutes for a
-# container that was never meant to stay up, and the target group would
-# never have a healthy target either way. The task definition, ALB,
-# target group, and CloudFront distribution are all provisioned and ready
-# so D8 only has to add this one resource once the real FastAPI console
-# command exists:
-#
-# resource "aws_ecs_service" "console" {
-#   name            = "${var.project_name}-console"
-#   cluster         = aws_ecs_cluster.primary.id
-#   task_definition = aws_ecs_task_definition.console.arn
-#   desired_count   = 1
-#   launch_type     = "FARGATE"
-#   network_configuration {
-#     subnets          = data.aws_subnets.primary.ids
-#     security_groups  = [aws_security_group.console.id]
-#     assign_public_ip = true
-#   }
-#   load_balancer {
-#     target_group_arn = aws_lb_target_group.console.arn
-#     container_name   = "console"
-#     container_port   = 8000
-#   }
-#   depends_on = [aws_lb_listener.console]
-# }
+# The ECS *service* — D8's real FastAPI console command (above) now
+# stays up, so a persistent Service with desired_count=1 is safe: it
+# won't restart-loop, and the target group has something to actually
+# health-check.
+resource "aws_ecs_service" "console" {
+  name            = "${var.project_name}-console"
+  cluster         = aws_ecs_cluster.primary.id
+  task_definition = aws_ecs_task_definition.console.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+  network_configuration {
+    subnets          = data.aws_subnets.primary.ids
+    security_groups  = [aws_security_group.console.id]
+    assign_public_ip = true
+  }
+  load_balancer {
+    target_group_arn = aws_lb_target_group.console.arn
+    container_name   = "console"
+    container_port   = 8000
+  }
+  depends_on = [aws_lb_listener.console]
+}

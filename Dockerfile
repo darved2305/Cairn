@@ -35,6 +35,27 @@ RUN uv sync --frozen --no-dev
 
 FROM python:3.12-slim AS runtime
 
+# psycopg's sslmode=verify-full needs a populated system trust store to
+# validate CockroachDB Cloud's publicly-signed cert (sslrootcert=system in
+# the connection string, set at deploy time) — the base image ships
+# without one, and unlike the builder stage this layer deliberately does
+# NOT copy certs/local-ca.crt (a per-developer TLS-intercepting-proxy
+# workaround, sometimes containing real local cert bytes via skip-worktree)
+# into the image that actually gets deployed.
+#
+# CockroachDB Cloud's TLS endpoint sends only its leaf cert, not the
+# intermediate ("Let's Encrypt YE2" -> "ISRG Root YE") needed to chain up
+# to the publicly-trusted "ISRG Root X2" — confirmed by inspecting the
+# handshake directly (openssl s_client -starttls postgres). Clients that
+# don't do AIA chasing (libpq doesn't) fail verify-full without it.
+# certs/cockroachlabs-lets-encrypt-chain.crt is that intermediate chain,
+# fetched from its own AIA URLs (ye2.i.lencr.org, ye.i.lencr.org) — public
+# certs, safe to commit, same mechanism as local-ca.crt above.
+COPY certs/cockroachlabs-lets-encrypt-chain.crt /usr/local/share/ca-certificates/cockroachlabs-lets-encrypt-chain.crt
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && update-ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # PYTHONHASHSEED must be set before the interpreter starts —
 # workload/determinism.py's apply() checks this and fails loudly rather
 # than silently running with a determinism guarantee that isn't true.

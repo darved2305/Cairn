@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
@@ -11,11 +12,13 @@ import subprocess
 import sys
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
 
 import psycopg
 import typer
+from botocore.exceptions import BotoCoreError, ClientError, EndpointConnectionError
 from psycopg_pool import ConnectionPool
 
 from cairn.agent.loop import Escalation, Refusal, run_pipeline
@@ -42,6 +45,52 @@ from cairn.obs.events import emit_event
 from cairn.planner import PipelinePlan, plan_pipeline
 from cairn.workload.stage_env import EnvManifest
 from cairn.workload.stage_env import run as capture_environment
+
+# Infra failures a real cloud deployment actually produces (connection
+# drops, DNS blips, TLS handshake timeouts against CockroachDB Cloud;
+# throttling/auth errors against Bedrock; RuntimeError covers both a
+# missing CAIRN_DATABASE_URL — db/pool.py::_env_url — and
+# cairn.embeddings.EmbeddingError, which subclasses it) — every command
+# below should degrade the way `doctor` already does: one clean line and
+# a correct exit code, never a raw Python traceback.
+_INFRA_ERRORS: tuple[type[BaseException], ...] = (
+    RuntimeError,
+    psycopg.OperationalError,
+    ClientError,
+    EndpointConnectionError,
+    BotoCoreError,
+    TimeoutError,
+    subprocess.CalledProcessError,
+)
+
+
+def _graceful[T](fn: Callable[..., T]) -> Callable[..., T]:
+    """Outer safety net around a command body. Command-specific exceptions
+    (Refusal/Escalation/ConfigError/...) are already handled inside the
+    function and raise typer.Exit themselves — that passes through here
+    untouched. Anything in _INFRA_ERRORS that reaches this point instead
+    gets one clean message + a non-zero exit, and an emitted event so a
+    TUI/console watching the event stream still sees the failure."""
+
+    name = fn.__name__.removesuffix("_command")
+
+    @functools.wraps(fn)
+    def wrapper(*args: object, **kwargs: object) -> T:
+        try:
+            return fn(*args, **kwargs)
+        except typer.Exit:
+            raise
+        except _INFRA_ERRORS as exc:
+            typer.echo(f"cairn {name}: {exc}", err=True)
+            emit_event(
+                "cli.infra_error",
+                {"command": name, "error_class": type(exc).__name__, "error": str(exc)},
+            )
+            close_pool()
+            raise typer.Exit(code=1) from exc
+
+    return wrapper
+
 
 app = typer.Typer(help="Causal reuse memory for expensive compute.")
 memory_app = typer.Typer(help="Query negative computational memory directly — PROJECT.md §7.1.")
@@ -158,6 +207,7 @@ def _resolve_tui_entry() -> Path | None:
 
 
 @app.command("plan")
+@_graceful
 def plan_command(
     config_path: Annotated[
         Path, typer.Option("--config", exists=True, dir_okay=False, readable=True)
@@ -209,6 +259,7 @@ def plan_command(
 
 
 @app.command("claim-demo")
+@_graceful
 def claim_demo_command(
     work_key: Annotated[str, typer.Argument(help="The work_key to claim.")],
     stage: Annotated[str, typer.Option("--stage")] = "race_driver",
@@ -296,6 +347,7 @@ def claim_demo_command(
 
 
 @app.command("run")
+@_graceful
 def run_command(
     stage: Annotated[
         str, typer.Argument(help="Target stage: env, dataset, features, checkpoint, or eval.")
@@ -359,6 +411,7 @@ def run_command(
 
 
 @app.command("unquarantine")
+@_graceful
 def unquarantine_command(
     artifact_id: Annotated[str, typer.Argument(help="The quarantined artifact_id to clear.")],
     reason: Annotated[str, typer.Option("--reason", help="Required audit trail.")],
@@ -401,6 +454,7 @@ def init_command(
 
 
 @app.command("explain")
+@_graceful
 def explain_command(
     artifact_id: Annotated[str, typer.Argument(help="Artifact to explain.")],
     output: Annotated[str, typer.Option("--output", help="table or json")] = "table",
@@ -443,6 +497,7 @@ def explain_command(
 
 
 @memory_app.command("search")
+@_graceful
 def memory_search_command(
     text: Annotated[str, typer.Argument(help="Free text describing a failure to search for.")],
     stage: Annotated[
@@ -499,6 +554,7 @@ def memory_search_command(
 
 
 @memory_app.command("why-blocked")
+@_graceful
 def memory_why_blocked_command(
     output: Annotated[str, typer.Option("--output", help="table or json")] = "table",
 ) -> None:

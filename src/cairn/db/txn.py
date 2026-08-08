@@ -21,7 +21,7 @@ from collections.abc import Callable
 
 import psycopg
 from psycopg.errors import SerializationFailure
-from psycopg_pool import ConnectionPool
+from psycopg_pool import ConnectionPool, PoolTimeout
 
 from cairn.obs.metrics import emit_metric
 
@@ -30,6 +30,14 @@ logger = logging.getLogger("cairn.db.txn")
 MAX_ATTEMPTS = 8
 BASE_MS = 50
 CAP_MS = 2000
+
+# Transient connectivity (timeout/reset/DNS blip against the real
+# CockroachDB Cloud cluster) is a different failure class from 40001
+# contention and gets its own small, separately-budgeted retry — the
+# jittered exponential backoff above is tuned for contention, not network
+# flakiness, and shouldn't govern both.
+CONN_MAX_ATTEMPTS = 3
+CONN_BASE_MS = 250
 
 
 class TxnRetriesExhausted(RuntimeError):
@@ -44,7 +52,8 @@ def in_txn[T](pool: ConnectionPool, fn: Callable[[psycopg.Cursor], T], *, op: st
     `op` is a short label (e.g. "claim.acquire") used only for logging;
     it has no effect on retry behaviour.
     """
-    last: SerializationFailure | None = None
+    last: SerializationFailure | psycopg.OperationalError | None = None
+    conn_attempts = 0
     for attempt in range(MAX_ATTEMPTS):
         try:
             with pool.connection() as conn:
@@ -74,4 +83,26 @@ def in_txn[T](pool: ConnectionPool, fn: Callable[[psycopg.Cursor], T], *, op: st
                 jittered_s * 1000,
             )
             time.sleep(jittered_s)
+        except PoolTimeout:
+            # PoolTimeout already means the pool spent its own full
+            # checkout timeout (db/pool.py) retrying internally — it IS
+            # an exhausted wait, not a fast single-attempt failure, so
+            # retrying it here would just stack another full wait on top
+            # for no benefit. Let it propagate immediately.
+            raise
+        except psycopg.OperationalError as e:
+            last = e
+            conn_attempts += 1
+            if conn_attempts > CONN_MAX_ATTEMPTS:
+                raise
+            backoff_s = (CONN_BASE_MS * conn_attempts) / 1000.0
+            logger.warning(
+                "txn '%s' hit a connection error on attempt %d/%d, retrying in %.0fms: %s",
+                op,
+                conn_attempts,
+                CONN_MAX_ATTEMPTS,
+                backoff_s * 1000,
+                e,
+            )
+            time.sleep(backoff_s)
     raise TxnRetriesExhausted(f"txn '{op}' exhausted {MAX_ATTEMPTS} retries") from last

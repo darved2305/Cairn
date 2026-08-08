@@ -74,9 +74,21 @@ class CausalInputConflict(RuntimeError):
 
 
 def insert_artifact(
-    cur: psycopg.Cursor, artifact: ArtifactLike, inputs: Sequence[ArtifactInput]
+    cur: psycopg.Cursor,
+    artifact: ArtifactLike,
+    inputs: Sequence[ArtifactInput],
+    *,
+    allow_existing: bool = False,
 ) -> None:
-    """Insert an artifact and its typed inputs inside the caller's transaction."""
+    """Insert an artifact and its typed inputs inside the caller's transaction.
+
+    `allow_existing` implements PROJECT.md's completion idempotency: two
+    causally distinct work keys may deterministically produce the same bytes,
+    and therefore the same content-addressed artifact. The first insertion is
+    the artifact's canonical provenance; later claims converge on that row
+    rather than trying to overwrite it with a second input set the schema
+    cannot represent. Direct graph writes remain strict by default.
+    """
 
     _validate_inputs(inputs)
     cur.execute(
@@ -86,7 +98,7 @@ def insert_artifact(
            produced_by_run, duration_ms, vcpu, mem_mib, region)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (artifact_id) DO NOTHING
-        RETURNING NOTHING
+        RETURNING artifact_id
         """,
         (
             artifact.artifact_id,
@@ -102,6 +114,9 @@ def insert_artifact(
             artifact.region,
         ),
     )
+    inserted = cur.fetchone() is not None
+    if not inserted and allow_existing:
+        return
     for item in sorted(inputs):
         cur.execute(
             """

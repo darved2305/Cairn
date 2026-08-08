@@ -68,6 +68,18 @@ def test_conflicting_existing_provenance_is_rejected() -> None:
         )
 
 
+def test_claim_completion_can_converge_on_existing_content_address() -> None:
+    cursor = Cursor(conflict=True)
+    insert_artifact(
+        cursor,  # type: ignore[arg-type]
+        _artifact(),
+        [ArtifactInput("env", "environment", "different-env")],
+        allow_existing=True,
+    )
+    assert len(cursor.statements) == 1
+    assert "ON CONFLICT (artifact_id) DO NOTHING" in cursor.statements[0][0]
+
+
 @pytest.mark.parametrize("kind", ["", "model", "CONFIG"])
 def test_unknown_input_kinds_are_rejected(kind: str) -> None:
     with pytest.raises(ValueError, match="input_kind"):

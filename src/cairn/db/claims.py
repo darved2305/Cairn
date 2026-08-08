@@ -278,7 +278,11 @@ def complete(
             # UPDATE and graph inserts still commit atomically as one txn,
             # but fencing is checked before any provenance is written.
             return False
-        insert_artifact(cur, artifact, inputs)
+        # Content addresses intentionally converge across work keys. If
+        # another environment produced byte-identical output first, the
+        # canonical artifact/provenance row already exists and this claim may
+        # safely point at it (PROJECT.md §4.2 completion idempotency).
+        insert_artifact(cur, artifact, inputs, allow_existing=True)
         return True
 
     completed = in_txn(pool, _tx, op="claim.complete")

@@ -279,6 +279,26 @@ appended below as they are obtained.
 - Fix: every claimed workload stage now owns a bounded background heartbeat
   at the protocol's real 10-second cadence. It fails closed if the fence is
   lost or renewal errors, stops before completion, and uses the same shared
-  bounded pool. Unit tests prove renewal and lost-fence behavior. The exact
-  features work key and its real fragments will be retried after deployment to
-  exercise fenced takeover/resume rather than discarding evidence.
+  bounded pool. Unit tests prove renewal and lost-fence behavior. The failed
+  revision-5 work key and its real fragments remain preserved as evidence; the
+  fixed image correctly uses its own new image identity and therefore does not
+  impersonate the old provenance to resume them.
+
+### Defect 7 — identical bytes across environments collided on provenance
+
+- Revision-6 task
+  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/2f91250e8b4343d4885f1707013d22aa`
+  recomputed byte-identical dataset output under the new image environment,
+  then exited 1 because artifact
+  `e7765b30acf66f1f0e75adddb7085b9ea02946aabf9c04889fc1431c6f6bdf24`
+  already had the prior environment input. This happened before the new
+  features stage, so it is independent of the heartbeat fix.
+- PROJECT.md §4.2 explicitly defines artifact IDs as payload SHA-256 and says
+  repeat completion is a no-op at the artifact primary key. The fix preserves
+  that contract: direct provenance writes remain conflict-strict, while a
+  fenced claim completion may converge on an already-known content address.
+  The first row remains canonical provenance and both distinct work-key claims
+  point to the same real artifact.
+- A new live integration case completed two different work keys/environments
+  against one identical content address and passed. The changed INSERT also
+  passed live `EXPLAIN`; seven graph unit tests pass.

@@ -103,6 +103,69 @@ def test_a_real_subcommand_is_unaffected_by_the_bare_invocation_change() -> None
     assert "table" in result.output
 
 
+def test_commands_load_project_dotenv_without_truncating_ampersands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database_url = (
+        "postgresql://cairn:secret@example.invalid/defaultdb?sslmode=verify-full"
+        "&options=--cluster%3Dcairn"
+    )
+    (tmp_path / ".env").write_text(f"CAIRN_DATABASE_URL={database_url}\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CAIRN_DATABASE_URL", raising=False)
+
+    result = CliRunner().invoke(app, ["init", "--config", str(tmp_path / "cairn.yaml")])
+
+    assert result.exit_code == 0, result.output
+    assert cli_module.os.environ["CAIRN_DATABASE_URL"] == database_url
+
+
+def test_project_dotenv_never_overrides_an_explicit_process_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".env").write_text("CAIRN_DATABASE_URL=from-file\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CAIRN_DATABASE_URL", "from-process")
+
+    result = CliRunner().invoke(app, ["init", "--config", str(tmp_path / "cairn.yaml")])
+
+    assert result.exit_code == 0, result.output
+    assert cli_module.os.environ["CAIRN_DATABASE_URL"] == "from-process"
+
+
+def test_doctor_aws_falls_back_to_the_real_cli_when_the_sdk_probe_crashes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+
+    def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(argv)
+        if argv[0] == sys.executable:
+            return subprocess.CompletedProcess(
+                argv,
+                1,
+                stdout="",
+                stderr="OPENSSL_Uplink: no OPENSSL_Applink",
+            )
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout=json.dumps({"Account": "123456789012", "Arn": "arn:aws:iam::123:user/x"}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(cli_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        cli_module.shutil, "which", lambda command: "aws.exe" if command == "aws" else None
+    )
+
+    ok, detail = cli_module._doctor_aws()
+
+    assert ok is True
+    assert detail == "credentials valid, account=123456789012 (AWS CLI fallback)"
+    assert len(calls) == 2
+
+
 def test_resolve_tui_entry_honors_explicit_override(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

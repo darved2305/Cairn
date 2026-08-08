@@ -19,6 +19,7 @@ from typing import Annotated
 import psycopg
 import typer
 from botocore.exceptions import BotoCoreError, ClientError, EndpointConnectionError
+from dotenv import find_dotenv, load_dotenv
 from psycopg_pool import ConnectionPool
 
 from cairn.agent.loop import Escalation, Refusal, run_pipeline
@@ -143,6 +144,16 @@ def main(ctx: typer.Context) -> None:
     only acts when `ctx.invoked_subcommand` is None, and even then it
     falls back to printing help rather than launching a TUI into a
     non-interactive pipe (Part B §41's amendment)."""
+
+    # `scripts/provision_cluster.sh` writes the live connection details to
+    # `.env`, and the documented quickstart immediately invokes `make`/`cairn`
+    # without asking the user to source that file. Load the nearest project
+    # file from the invocation directory and preserve any explicit process
+    # environment overrides. Passing values through the process environment
+    # also keeps connection strings containing `&` intact on Windows.
+    dotenv_path = find_dotenv(usecwd=True)
+    if dotenv_path:
+        load_dotenv(dotenv_path, override=False)
 
     if ctx.invoked_subcommand is not None:
         return
@@ -729,6 +740,7 @@ _AWS_STS_PROBE = (
 
 
 def _doctor_aws() -> tuple[bool, str]:
+    probe_error = "unknown error"
     try:
         completed = subprocess.run(
             [sys.executable, "-c", _AWS_STS_PROBE],
@@ -737,17 +749,51 @@ def _doctor_aws() -> tuple[bool, str]:
             timeout=20,
         )
     except subprocess.TimeoutExpired:
-        return False, "AWS STS check timed out after 20s"
-    lines = [line for line in completed.stdout.strip().splitlines() if line]
-    if not lines:
-        return False, f"AWS STS check produced no output: {completed.stderr.strip()[:200]}"
+        probe_error = "AWS SDK STS check timed out after 20s"
+    else:
+        lines = [line for line in completed.stdout.strip().splitlines() if line]
+        if lines:
+            try:
+                payload = json.loads(lines[-1])
+            except json.JSONDecodeError:
+                probe_error = f"AWS SDK STS check produced unparsable output: {lines[-1][:200]}"
+            else:
+                if payload.get("ok"):
+                    return True, f"credentials valid, account={payload.get('account')} (SDK)"
+                probe_error = (
+                    f"AWS SDK unreachable: {str(payload.get('error', 'unknown error'))[:200]}"
+                )
+        else:
+            probe_error = f"AWS SDK STS check produced no output: {completed.stderr.strip()[:200]}"
+
+    # Some Windows Python environments have a native OpenSSL DLL conflict
+    # (the SDK probe above exits before it can emit JSON) while the installed
+    # AWS CLI remains healthy because it ships an isolated runtime. Doctor is
+    # diagnostics, so use that independent real STS client as a fallback and
+    # say which path succeeded rather than reporting valid credentials as
+    # unavailable.
+    aws_path = shutil.which("aws")
+    if aws_path is None:
+        return False, probe_error
     try:
-        payload = json.loads(lines[-1])
+        cli = subprocess.run(
+            [aws_path, "sts", "get-caller-identity", "--output", "json"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except subprocess.TimeoutExpired:
+        return False, f"{probe_error}; AWS CLI STS check timed out after 20s"
+    if cli.returncode != 0:
+        return False, f"{probe_error}; AWS CLI failed: {cli.stderr.strip()[:200]}"
+    try:
+        identity = json.loads(cli.stdout)
     except json.JSONDecodeError:
-        return False, f"AWS STS check produced unparsable output: {lines[-1][:200]}"
-    if payload.get("ok"):
-        return True, f"credentials valid, account={payload.get('account')}"
-    return False, f"unreachable: {str(payload.get('error', 'unknown error'))[:200]}"
+        return False, f"{probe_error}; AWS CLI returned invalid JSON"
+    account = identity.get("Account")
+    if not account:
+        return False, f"{probe_error}; AWS CLI response omitted Account"
+    return True, f"credentials valid, account={account} (AWS CLI fallback)"
 
 
 def _print_explain(

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from cairn.agent import loop
@@ -43,3 +45,40 @@ def test_upstream_read_uses_uri_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert loop._get_upstream_bytes("cairn-demo", artifact) == b"real object bytes"  # noqa: SLF001
     assert observed == [("cairn-demo", f"checkpoint/{'a' * 64}")]
+
+
+def test_claim_heartbeat_renews_until_context_exits(monkeypatch: pytest.MonkeyPatch) -> None:
+    called = threading.Event()
+
+    def renew(*_args: object) -> bool:
+        called.set()
+        return True
+
+    monkeypatch.setattr(loop.claims, "heartbeat", renew)
+    heartbeat = loop._ClaimHeartbeat(  # type: ignore[arg-type]  # noqa: SLF001
+        object(), "w" * 64, "owner", 7, interval_s=0.01
+    )
+    with heartbeat:
+        assert called.wait(timeout=1)
+
+    heartbeat.require_owned()
+
+
+def test_claim_heartbeat_fails_closed_when_fence_is_lost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    called = threading.Event()
+
+    def lose(*_args: object) -> bool:
+        called.set()
+        return False
+
+    monkeypatch.setattr(loop.claims, "heartbeat", lose)
+    heartbeat = loop._ClaimHeartbeat(  # type: ignore[arg-type]  # noqa: SLF001
+        object(), "w" * 64, "owner", 7, interval_s=0.01
+    )
+    with heartbeat:
+        assert called.wait(timeout=1)
+
+    with pytest.raises(RuntimeError, match="lost claim heartbeat"):
+        heartbeat.require_owned()

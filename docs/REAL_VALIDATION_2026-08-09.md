@@ -250,3 +250,35 @@ appended below as they are obtained.
 - Terraform CLI is not installed on this host, so `terraform fmt/validate`
   cannot be run locally; the HCL changes remain pending CI/another Terraform
   installation rather than being called green.
+
+### Revision 5 cold workload and Defect 6 — stages never heartbeated
+
+- Image `9a40594` passed an in-container live DB connection, read snapshot
+  `20news-4cat-v1`, and reported `image_digest=9a40594`; it was pushed to the
+  existing ECR repository at digest
+  `sha256:4a7c1dd3432749fada2fda0947ec85a969d8cbff5e3d1091a45f2223b5a32b76`.
+  Existing east worker, west worker, and console families were registered as
+  revision 5; no infrastructure resource was created.
+- Cold env task
+  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/ef18fd96c319494690af6b54dad9ea5c`
+  exited 0 and recomputed artifact
+  `98235865c159a2d13559e8f5166fe940c91c284173f07ef389cd4f2be2e2a7aa`
+  under the new image-dependent work key.
+- Dataset task
+  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/24da6e5b02ce41d593f2bc413839e5ad`
+  exited 0, identity-reused env, read the real vendored snapshot, and
+  recomputed artifact
+  `e7765b30acf66f1f0e75adddb7085b9ea02946aabf9c04889fc1431c6f6bdf24`.
+- Features task
+  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/953b410cc91946229550621fe3ce54df`
+  loaded all 103 real model weight tensors and performed the long stage, but
+  exited 1 with `dispossessed while completing ... (fence=1)`.
+- Root cause: only `claim-demo` heartbeated. The real agent loop acquired a
+  45-second lease and then performed blocking compute without renewing it, so
+  the reaper could fence every features run before commit.
+- Fix: every claimed workload stage now owns a bounded background heartbeat
+  at the protocol's real 10-second cadence. It fails closed if the fence is
+  lost or renewal errors, stops before completion, and uses the same shared
+  bounded pool. Unit tests prove renewal and lost-fence behavior. The exact
+  features work key and its real fragments will be retried after deployment to
+  exercise fenced takeover/resume rather than discarding evidence.

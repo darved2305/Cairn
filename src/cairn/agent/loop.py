@@ -40,6 +40,7 @@ import traceback
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
+from threading import Event, Thread
 from typing import Any
 
 import numpy as np
@@ -111,6 +112,55 @@ class UpstreamArtifactUnavailable(RuntimeError):
         super().__init__(
             f"upstream artifact {artifact.artifact_id} ({artifact.s3_uri}) unavailable: {detail}"
         )
+
+
+class _ClaimHeartbeat:
+    """Keep a real workload's lease alive while compute blocks the main thread."""
+
+    def __init__(
+        self,
+        pool: ConnectionPool,
+        work_key: str,
+        owner: str,
+        fence: int,
+        *,
+        interval_s: float = claims.HEARTBEAT_SECONDS,
+    ) -> None:
+        self._pool = pool
+        self._work_key = work_key
+        self._owner = owner
+        self._fence = fence
+        self._interval_s = interval_s
+        self._stop = Event()
+        self._lost = Event()
+        self._error: Exception | None = None
+        self._thread = Thread(target=self._run, name=f"cairn-heartbeat-{work_key[:8]}", daemon=True)
+
+    def __enter__(self) -> _ClaimHeartbeat:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._stop.set()
+        self._thread.join(timeout=max(1.0, self._interval_s + 1.0))
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._interval_s):
+            try:
+                if not claims.heartbeat(self._pool, self._work_key, self._owner, self._fence):
+                    self._lost.set()
+                    return
+            except Exception as exc:  # the main thread must fail closed before commit
+                self._error = exc
+                self._lost.set()
+                return
+
+    def require_owned(self) -> None:
+        if self._lost.is_set():
+            detail = f": {self._error}" if self._error is not None else ""
+            raise RuntimeError(
+                f"lost claim heartbeat for work_key={self._work_key} (fence={self._fence}){detail}"
+            )
 
 
 @dataclass(frozen=True)
@@ -652,33 +702,35 @@ def run_stage(
     # --- decide + act: probe-based reuse (features only) or real recompute ---
     started = time.monotonic()
     try:
-        if stage_name == "features":
-            outcome = _act_features(
-                pool,
-                stage_plan=stage_plan,
-                config=config,
-                bucket=bucket,
-                owner=owner,
-                region=region,
-                run_id=run_id,
-                fence=claim.fence,
-                environment=environment,
-                upstream=upstream,
-                resumed=resumed,
-            )
-        else:
-            artifact_id, s3_uri, size_bytes = _act_generic(
-                pool,
-                stage_name=stage_name,
-                stage_plan=stage_plan,
-                config=config,
-                bucket=bucket,
-                run_id=run_id,
-                fence=claim.fence,
-                environment=environment,
-                upstream=upstream,
-            )
-            outcome = ("recompute", artifact_id, s3_uri, size_bytes, None)
+        with _ClaimHeartbeat(pool, work_key, owner, claim.fence) as heartbeat:
+            if stage_name == "features":
+                outcome = _act_features(
+                    pool,
+                    stage_plan=stage_plan,
+                    config=config,
+                    bucket=bucket,
+                    owner=owner,
+                    region=region,
+                    run_id=run_id,
+                    fence=claim.fence,
+                    environment=environment,
+                    upstream=upstream,
+                    resumed=resumed,
+                )
+            else:
+                artifact_id, s3_uri, size_bytes = _act_generic(
+                    pool,
+                    stage_name=stage_name,
+                    stage_plan=stage_plan,
+                    config=config,
+                    bucket=bucket,
+                    run_id=run_id,
+                    fence=claim.fence,
+                    environment=environment,
+                    upstream=upstream,
+                )
+                outcome = ("recompute", artifact_id, s3_uri, size_bytes, None)
+            heartbeat.require_owned()
     except Exception as exc:
         claims.fail(pool, work_key, owner, claim.fence)
         _learn_from_failure(

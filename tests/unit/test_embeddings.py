@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import math
+import subprocess
 from io import BytesIO
 from typing import Any
 
 import pytest
 
+import cairn.embeddings as embeddings_module
 from cairn.embeddings import (
     EMBEDDING_DIM,
     EmbeddingError,
@@ -98,6 +100,25 @@ def test_titan_provider_wraps_client_errors() -> None:
     provider = TitanEmbeddingProvider(client=client)
     with pytest.raises(EmbeddingError, match="Bedrock Titan embedding call failed"):
         provider.embed("text")
+
+
+def test_windows_titan_native_failure_becomes_embedding_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(embeddings_module.sys, "platform", "win32")
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            ["python"],
+            3221226505,
+            stdout="",
+            stderr="OPENSSL_Uplink: no OPENSSL_Applink",
+        )
+
+    monkeypatch.setattr(embeddings_module.subprocess, "run", fake_run)
+
+    with pytest.raises(EmbeddingError, match="subprocess failed.*OPENSSL_Uplink"):
+        TitanEmbeddingProvider().embed("text")
 
 
 def test_titan_provider_rejects_wrong_dimension_response() -> None:

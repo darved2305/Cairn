@@ -432,13 +432,14 @@ export function SavingsStrip() {
 }
 
 function StripRow({ savings }: { savings: Savings }) {
+  const secondsLabel = savings.seconds_saved_measured < 0 ? "seconds added" : "seconds saved";
   const items: Array<[string, string]> = [
     ["reused", String(savings.stages_reused)],
     ["recomputed", String(savings.stages_recomputed)],
     ["duplicates prevented", String(savings.duplicate_launches_prevented)],
     ["failures avoided", String(savings.failures_avoided)],
     ["fragments resumed", String(savings.fragments_resumed)],
-    ["seconds saved", savings.seconds_saved_measured.toFixed(1)],
+    [secondsLabel, Math.abs(savings.seconds_saved_measured).toFixed(1)],
   ];
   return (
     <div className="scroll-x flex items-center gap-5 text-[0.75rem]">
@@ -489,9 +490,9 @@ export function ResultsGrid() {
               note="REFUSE_DOOMED actions — plans halted before any claim was taken, because memory had seen the failure already"
             />
             <StatTile
-              value={savings.seconds_saved_measured.toFixed(1)}
+              value={Math.abs(savings.seconds_saved_measured).toFixed(1)}
               unit="s"
-              label="seconds saved"
+              label={savings.seconds_saved_measured < 0 ? "seconds added" : "seconds saved"}
               note={savings.seconds_saved_basis}
             />
           </div>

@@ -71,6 +71,23 @@ class TestSecondsSaved:
         assert result.seconds_saved_measured == 0
         assert result.probe_seconds_paid == 0
 
+    def test_negative_net_time_is_labeled_as_slower_not_negative_savings(self) -> None:
+        tiny = [
+            ReusedArtifact(
+                duration_ms=1,
+                vcpu=2.0,
+                mem_mib=4096,
+                decision_latency_ms=30,
+            )
+        ]
+        result = _savings(tiny, RATES)
+
+        assert result.seconds_saved_measured == -0.029
+        assert result.cost is not None
+        assert "slower" in result.cost.formula
+        assert "additional" in result.cost.formula
+        assert "$-" not in result.cost.formula
+
 
 class TestCostRequiresARate:
     def test_no_rate_rows_yields_no_cost_and_a_reason(self) -> None:

@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -34,6 +36,24 @@ from cairn.classify.llm import CLAUDE_MODEL_ID
 from cairn.console import sqltools
 
 MAX_TOOL_ROUNDS = 6
+
+_WINDOWS_INSPECTOR_PROBE = """\
+import json
+import sys
+from dataclasses import asdict
+
+from cairn.console.inspector import _ask_direct
+from cairn.db.pool import close_pool, get_pool
+
+request = json.loads(sys.stdin.read())
+try:
+    answer = _ask_direct(get_pool(), request["question"])
+    print(json.dumps({"ok": True, "answer": asdict(answer)}, default=str))
+except Exception as exc:
+    print(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"}))
+finally:
+    close_pool()
+"""
 
 _SYSTEM = """You are the Memory Inspector for Cairn, a causal reuse-memory system for
 expensive compute. You answer questions about what Cairn's memory actually contains by
@@ -127,6 +147,46 @@ def _client() -> Any:
 
 def ask(pool: ConnectionPool, question: str) -> InspectorAnswer:
     """Run the tool loop and return the answer plus the SQL that produced it."""
+
+    # See embeddings.TitanEmbeddingProvider for the same host failure at a
+    # smaller scope. The Inspector interleaves Bedrock and SQL tool calls, so
+    # isolate its whole real loop on Windows. The child opens its own live,
+    # read-only pool; a native OpenSSL abort or model denial then becomes a
+    # bounded 503 instead of killing uvicorn and every other console panel.
+    if sys.platform == "win32":
+        return _ask_windows_subprocess(question)
+    return _ask_direct(pool, question)
+
+
+def _ask_windows_subprocess(question: str) -> InspectorAnswer:
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", _WINDOWS_INSPECTOR_PROBE],
+            input=json.dumps({"question": question}),
+            capture_output=True,
+            text=True,
+            timeout=45,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise InspectorUnavailable("Memory Inspector timed out after 45s") from exc
+    lines = [line for line in completed.stdout.splitlines() if line.strip()]
+    if not lines:
+        detail = completed.stderr.strip()[:300] or f"child exit code {completed.returncode}"
+        raise InspectorUnavailable(f"Memory Inspector subprocess failed: {detail}")
+    try:
+        result = json.loads(lines[-1])
+    except json.JSONDecodeError as exc:
+        raise InspectorUnavailable("Memory Inspector subprocess returned invalid JSON") from exc
+    if not result.get("ok"):
+        raise InspectorUnavailable(str(result.get("error", "Memory Inspector unavailable")))
+    answer = result.get("answer")
+    if not isinstance(answer, dict):
+        raise InspectorUnavailable("Memory Inspector subprocess omitted its answer")
+    return InspectorAnswer(**answer)
+
+
+def _ask_direct(pool: ConnectionPool, question: str) -> InspectorAnswer:
+    """Run the real Bedrock/tool loop in a process safe for native SDK calls."""
 
     if os.environ.get("CAIRN_NO_LLM"):
         raise InspectorUnavailable(

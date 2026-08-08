@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 import psycopg
 from psycopg_pool import ConnectionPool
 
+from cairn.console.queries import _PRODUCT_ARTIFACT_FILTER, _PRODUCT_DECISION_FILTER
 from cairn.db.txn import in_txn
 
 # Wall-clock pacing. A recorded 95 s feature stage is not replayed at 95 s —
@@ -123,13 +124,13 @@ def _build(pool: ConnectionPool) -> list[DemoScenario]:
 
         # --- 1. Evidence-backed reuse (PROJECT.md §4.4, video 0:15-0:45) ---
         cur.execute(
-            """
+            f"""
             SELECT d.decision_id, d.stage, d.action, d.verdict, d.authorized_by,
                    d.latency_ms, d.explanation, p.probe_type, p.sample_size, p.population_size,
                    p.tolerance, p.runtime_ms
               FROM reuse_decisions d
               LEFT JOIN probe_runs p ON p.probe_run_id = d.probe_run_id
-             WHERE d.verdict = 'reuse'
+             WHERE d.verdict = 'reuse' AND {_PRODUCT_DECISION_FILTER}
              ORDER BY d.created_at DESC
              LIMIT 5
             """
@@ -167,11 +168,11 @@ def _build(pool: ConnectionPool) -> list[DemoScenario]:
 
         # --- 2. Causal partial reuse (PROJECT.md §4.3, video 0:45-1:20) ---
         cur.execute(
-            """
-            SELECT decision_id, stage, action, verdict, latency_ms, explanation
-              FROM reuse_decisions
-             WHERE verdict IN ('reuse', 'recompute')
-             ORDER BY created_at DESC
+            f"""
+            SELECT d.decision_id, d.stage, d.action, d.verdict, d.latency_ms, d.explanation
+              FROM reuse_decisions d
+             WHERE d.verdict IN ('reuse', 'recompute') AND {_PRODUCT_DECISION_FILTER}
+             ORDER BY d.created_at DESC
              LIMIT 10
             """
         )
@@ -212,9 +213,12 @@ def _build(pool: ConnectionPool) -> list[DemoScenario]:
         # --- 3. Claim race, fencing, crash resume (PROJECT.md §4.2/§4.5) ---
         cur.execute(
             """
-            SELECT transfer_id, work_key, from_owner, to_owner, from_fence, to_fence, reason
-              FROM ownership_transfers
-             ORDER BY at DESC
+            SELECT t.transfer_id, t.work_key, t.from_owner, t.to_owner,
+                   t.from_fence, t.to_fence, t.reason
+              FROM ownership_transfers t
+              JOIN work_claims c ON c.work_key = t.work_key
+             WHERE c.stage <> 'race_test'
+             ORDER BY t.at DESC
              LIMIT 6
             """
         )
@@ -233,9 +237,11 @@ def _build(pool: ConnectionPool) -> list[DemoScenario]:
             for row in transfers
         ]
         cur.execute(
-            """
+            f"""
             SELECT work_key, count(*), max(fragment_index), coalesce(sum(duration_ms), 0)
-              FROM run_fragments GROUP BY work_key ORDER BY 2 DESC LIMIT 2
+              FROM run_fragments
+             WHERE {_PRODUCT_ARTIFACT_FILTER}
+             GROUP BY work_key ORDER BY 2 DESC LIMIT 2
             """
         )
         for work_key, count, latest, total_ms in cur.fetchall():
@@ -309,10 +315,12 @@ def _build(pool: ConnectionPool) -> list[DemoScenario]:
                     )
                 )
         cur.execute(
-            """
-            SELECT decision_id, stage, explanation, latency_ms FROM reuse_decisions
-             WHERE action IN ('REFUSE_DOOMED', 'REMEDIATE_AND_REPLAN')
-             ORDER BY created_at DESC LIMIT 3
+            f"""
+            SELECT d.decision_id, d.stage, d.explanation, d.latency_ms
+              FROM reuse_decisions d
+             WHERE d.action IN ('REFUSE_DOOMED', 'REMEDIATE_AND_REPLAN')
+               AND {_PRODUCT_DECISION_FILTER}
+             ORDER BY d.created_at DESC LIMIT 3
             """
         )
         for decision_id, stage, explanation, latency_ms in cur.fetchall():

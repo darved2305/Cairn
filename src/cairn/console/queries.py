@@ -24,6 +24,30 @@ from cairn.db.txn import in_txn
 # features -> checkpoint -> eval), matching planner.py's STAGES order.
 PIPELINE_STAGES = ("env", "dataset", "features", "checkpoint", "eval")
 
+# Integration validation deliberately writes to the same real cluster (the
+# no-mocked-DB rule), using non-canonical work keys and `s3://test` fixture
+# URIs. Cairn's product work-key contract is exactly 64 lowercase hex chars.
+# Keep those durable validation rows queryable by id for audit/debugging, but
+# do not let them replace a judge's latest pipeline state or inflate the
+# public ledger/savings strip.
+_PRODUCT_DECISION_FILTER = """
+    d.work_key ~ '^[0-9a-f]{64}$'
+    AND (
+      d.candidate_artifact_id IS NULL
+      OR EXISTS (
+        SELECT 1 FROM artifacts candidate
+         WHERE candidate.artifact_id = d.candidate_artifact_id
+           AND left(candidate.s3_uri, 10) <> 's3://test/'
+           AND left(candidate.s3_uri, 16) <> 's3://cairn-test/'
+      )
+    )
+"""
+
+_PRODUCT_ARTIFACT_FILTER = """
+    left(s3_uri, 10) <> 's3://test/'
+    AND left(s3_uri, 16) <> 's3://cairn-test/'
+"""
+
 
 @dataclass(frozen=True)
 class DecisionSummary:
@@ -186,8 +210,9 @@ def pipeline_status(pool: ConnectionPool) -> list[StageStatus]:
         for stage in PIPELINE_STAGES:
             cur.execute(
                 f"""
-                SELECT {_DECISION_COLUMNS} FROM reuse_decisions
-                 WHERE stage = %s ORDER BY created_at DESC LIMIT 1
+                SELECT {_DECISION_COLUMNS} FROM reuse_decisions d
+                 WHERE d.stage = %s AND {_PRODUCT_DECISION_FILTER}
+                 ORDER BY d.created_at DESC LIMIT 1
                 """,
                 (stage,),
             )
@@ -195,11 +220,12 @@ def pipeline_status(pool: ConnectionPool) -> list[StageStatus]:
             decision = _row_to_decision(decision_row) if decision_row else None
 
             cur.execute(
-                """
+                f"""
                 SELECT artifact_id, stage, work_key, s3_uri, size_bytes,
                        duration_ms, region, quarantined_at, created_at
                   FROM artifacts
-                 WHERE stage = %s ORDER BY created_at DESC LIMIT 1
+                 WHERE stage = %s AND {_PRODUCT_ARTIFACT_FILTER}
+                 ORDER BY created_at DESC LIMIT 1
                 """,
                 (stage,),
             )
@@ -215,19 +241,25 @@ def pipeline_status(pool: ConnectionPool) -> list[StageStatus]:
 
 
 def list_decisions(
-    pool: ConnectionPool, *, limit: int = 50, offset: int = 0
+    pool: ConnectionPool,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    include_validation: bool = False,
 ) -> tuple[list[DecisionSummary], int]:
     def _tx(cur: psycopg.Cursor) -> tuple[list[DecisionSummary], int]:
+        where = "" if include_validation else f"WHERE {_PRODUCT_DECISION_FILTER}"
         cur.execute(
             f"""
-            SELECT {_DECISION_COLUMNS} FROM reuse_decisions
-             ORDER BY created_at DESC
+            SELECT {_DECISION_COLUMNS} FROM reuse_decisions d
+             {where}
+             ORDER BY d.created_at DESC
              LIMIT %s OFFSET %s
             """,
             (limit, offset),
         )
         decisions = [_row_to_decision(row) for row in cur.fetchall()]
-        cur.execute("SELECT count(*) FROM reuse_decisions")
+        cur.execute(f"SELECT count(*) FROM reuse_decisions d {where}")
         row = cur.fetchone()
         assert row is not None
         total = int(row[0])
@@ -327,7 +359,9 @@ class ClaimRow:
     transfers: list[OwnershipTransfer]
 
 
-def list_claims(pool: ConnectionPool, *, limit: int = 50) -> list[ClaimRow]:
+def list_claims(
+    pool: ConnectionPool, *, limit: int = 50, include_validation: bool = False
+) -> list[ClaimRow]:
     """Live `work_claims` joined to their `run_fragments` progress and
     `ownership_transfers` audit trail — the three tables the Claim Theatre
     panel renders together (PROJECT.md §4.2's acquire/heartbeat/takeover
@@ -339,13 +373,15 @@ def list_claims(pool: ConnectionPool, *, limit: int = 50) -> list[ClaimRow]:
     CockroachDB's time, not the viewer's."""
 
     def _tx(cur: psycopg.Cursor) -> list[ClaimRow]:
+        where = "" if include_validation else "WHERE stage <> 'race_test'"
         cur.execute(
-            """
+            f"""
             SELECT work_key, stage, state, owner_id, owner_host, owner_region,
                    fence, lease_expires_at,
                    extract(epoch FROM (lease_expires_at - now())),
                    cancel_requested, run_id, artifact_id, claimed_at, updated_at
               FROM work_claims
+             {where}
              ORDER BY updated_at DESC
              LIMIT %s
             """,
@@ -608,7 +644,7 @@ def savings(pool: ConnectionPool) -> Savings:
 
     def _tx(cur: psycopg.Cursor) -> Savings:
         cur.execute(
-            """
+            f"""
             SELECT
               count(*) FILTER (WHERE verdict = 'reuse'),
               count(*) FILTER (WHERE verdict = 'recompute'),
@@ -616,7 +652,8 @@ def savings(pool: ConnectionPool) -> Savings:
               count(*) FILTER (WHERE action = 'REFUSE_DOOMED'),
               count(*) FILTER (WHERE action = 'RESUME'),
               count(*)
-              FROM reuse_decisions
+              FROM reuse_decisions d
+             WHERE {_PRODUCT_DECISION_FILTER}
             """
         )
         row = cur.fetchone()
@@ -628,11 +665,12 @@ def savings(pool: ConnectionPool) -> Savings:
         # the decisions that authorized that reuse (the probe/evidence cost is
         # real and is subtracted, not hidden).
         cur.execute(
-            """
+            f"""
             SELECT a.duration_ms, a.vcpu, a.mem_mib, d.latency_ms
               FROM reuse_decisions d
               JOIN artifacts a ON a.artifact_id = d.candidate_artifact_id
              WHERE d.verdict = 'reuse'
+               AND {_PRODUCT_DECISION_FILTER}
             """
         )
         reuse_rows = [
@@ -711,6 +749,11 @@ def _assemble_savings(
         hours = ((row.duration_ms - row.decision_latency_ms) / 1000.0) / 3600.0
         cost_usd += vcpu_rate[0] * row.vcpu * hours + gb_rate[0] * (row.mem_mib / 1024.0) * hours
     rate_per_s = (cost_usd / net_s) if net_s else 0.0
+    formula = (
+        f"{abs(net_s):.1f}s slower x ${abs(rate_per_s):.7f}/s = ${abs(cost_usd):.4f} additional"
+        if net_s < 0
+        else f"{net_s:.1f}s x ${rate_per_s:.7f}/s = ${cost_usd:.4f}"
+    )
 
     return Savings(
         stages_reused=reused,
@@ -725,7 +768,7 @@ def _assemble_savings(
             seconds=round(net_s, 3),
             rate_usd_per_second=round(rate_per_s, 10),
             cost_usd=round(cost_usd, 6),
-            formula=f"{net_s:.1f}s x ${rate_per_s:.7f}/s = ${cost_usd:.4f}",
+            formula=formula,
             rate_basis=(
                 f"${vcpu_rate[0]:.5f}/vCPU-hour x vcpu + ${gb_rate[0]:.6f}/GiB-hour x "
                 f"(mem_mib/1024), per artifact, over its own measured duration"

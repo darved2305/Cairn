@@ -111,15 +111,12 @@ def test_pipeline_reflects_latest_decision_and_artifact_per_stage(pool) -> None:
     assert set(stages) == {"env", "dataset", "features", "checkpoint", "eval"}
 
     checkpoint = stages["checkpoint"]
-    # created_at DESC means our just-inserted row is the latest unless a
-    # concurrent test raced us for the same stage in the same instant —
-    # assert identity when it's ours, else just that *a* row is present.
-    assert checkpoint["latest_decision"] is not None
-    assert checkpoint["latest_artifact"] is not None
-    if checkpoint["latest_decision"]["decision_id"] == str(decision_id):
-        assert checkpoint["latest_decision"]["work_key"] == f"wk-console-{token}"
-    if checkpoint["latest_artifact"]["artifact_id"] == artifact_id:
-        assert checkpoint["latest_artifact"]["work_key"] == f"wk-console-{token}"
+    # Validation fixtures remain durable and queryable by exact ID, but the
+    # public pipeline view must not promote them over product runs.
+    if checkpoint["latest_decision"] is not None:
+        assert checkpoint["latest_decision"]["decision_id"] != str(decision_id)
+    if checkpoint["latest_artifact"] is not None:
+        assert checkpoint["latest_artifact"]["artifact_id"] != artifact_id
 
 
 def test_decisions_list_is_paginated_and_ordered(pool) -> None:
@@ -141,7 +138,10 @@ def test_decisions_list_is_paginated_and_ordered(pool) -> None:
         decision_ids.append(str(decision_id))
 
     with TestClient(app) as client:
-        response = client.get("/api/decisions", params={"limit": 2, "offset": 0})
+        response = client.get(
+            "/api/decisions",
+            params={"limit": 2, "offset": 0, "include_validation": True},
+        )
         assert response.status_code == 200
         first_page = response.json()
         assert first_page["limit"] == 2
@@ -149,7 +149,10 @@ def test_decisions_list_is_paginated_and_ordered(pool) -> None:
         assert len(first_page["decisions"]) == 2
         assert first_page["total"] >= 3
 
-        response = client.get("/api/decisions", params={"limit": 2, "offset": 2})
+        response = client.get(
+            "/api/decisions",
+            params={"limit": 2, "offset": 2, "include_validation": True},
+        )
         assert response.status_code == 200
         second_page = response.json()
         assert len(second_page["decisions"]) >= 1

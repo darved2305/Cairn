@@ -77,13 +77,23 @@ def pipeline() -> list[queries.StageStatus]:
 
 
 @app.get("/api/decisions")
-def decisions(limit: int = 50, offset: int = 0) -> dict[str, object]:
+def decisions(
+    limit: int = 50, offset: int = 0, include_validation: bool = False
+) -> dict[str, object]:
     if not (1 <= limit <= 200):
         raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
     if offset < 0:
         raise HTTPException(status_code=400, detail="offset must be non-negative")
-    items, total = queries.list_decisions(get_pool(), limit=limit, offset=offset)
-    return {"decisions": items, "total": total, "limit": limit, "offset": offset}
+    items, total = queries.list_decisions(
+        get_pool(), limit=limit, offset=offset, include_validation=include_validation
+    )
+    return {
+        "decisions": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "include_validation": include_validation,
+    }
 
 
 @app.get("/api/decisions/{decision_id}")
@@ -95,13 +105,17 @@ def decision(decision_id: uuid.UUID) -> queries.DecisionDetail:
 
 
 @app.get("/api/claims")
-def claims(limit: int = 50) -> dict[str, object]:
+def claims(limit: int = 50, include_validation: bool = False) -> dict[str, object]:
     """Claim Theatre — PROJECT.md §7.2 panel 3."""
 
     if not (1 <= limit <= 200):
         raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
-    rows = queries.list_claims(get_pool(), limit=limit)
-    return {"claims": rows, "count": len(rows)}
+    rows = queries.list_claims(get_pool(), limit=limit, include_validation=include_validation)
+    return {
+        "claims": rows,
+        "count": len(rows),
+        "include_validation": include_validation,
+    }
 
 
 @app.get("/api/memory/search")

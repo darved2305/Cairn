@@ -16,6 +16,9 @@ runs the cross-region race for real," not two threads on one box.
 from __future__ import annotations
 
 import argparse
+import json
+import shutil
+import subprocess
 import sys
 import time
 import uuid
@@ -83,21 +86,18 @@ def _ecs_run_task(
     security_group: str,
     work_key: str,
 ) -> str:
-    import boto3
-
-    client = boto3.client("ecs", region_name=region)
-    response = client.run_task(
-        cluster=cluster,
-        taskDefinition=task_def,
-        launchType="FARGATE",
-        networkConfiguration={
+    request = {
+        "cluster": cluster,
+        "taskDefinition": task_def,
+        "launchType": "FARGATE",
+        "networkConfiguration": {
             "awsvpcConfiguration": {
                 "subnets": [subnet],
                 "securityGroups": [security_group],
                 "assignPublicIp": "ENABLED",
             }
         },
-        overrides={
+        "overrides": {
             "containerOverrides": [
                 {
                     "name": "worker",
@@ -113,7 +113,17 @@ def _ecs_run_task(
                 }
             ]
         },
-    )
+    }
+    if sys.platform == "win32":
+        response = _aws_cli_json(
+            ["ecs", "run-task", "--cli-input-json", json.dumps(request)], region=region
+        )
+    else:
+        import boto3
+
+        client = boto3.client("ecs", region_name=region)
+        response = client.run_task(**request)
+
     failures = response.get("failures", [])
     if failures:
         raise RuntimeError(f"ECS RunTask failed in {region}: {failures}")
@@ -121,13 +131,52 @@ def _ecs_run_task(
     return task_arn
 
 
-def _ecs_wait_stopped(*, region: str, cluster: str, task_arn: str, timeout_s: float = 120.0) -> str:
+def _aws_cli_json(args: list[str], *, region: str) -> dict[str, object]:
+    """Run the installed AWS CLI in its isolated runtime on Windows.
+
+    This is the same real AWS API call as boto3. It only avoids a native
+    OpenSSL DLL collision between psycopg-binary and botocore that otherwise
+    aborts this process before RunTask reaches AWS at all.
+    """
+
+    aws = shutil.which("aws")
+    if aws is None:
+        raise RuntimeError("AWS CLI not found on PATH")
+    completed = subprocess.run(
+        [aws, *args, "--region", region, "--output", "json"],
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"AWS CLI failed in {region}: {completed.stderr.strip()[:500]}")
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("AWS CLI returned invalid JSON") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("AWS CLI returned a non-object response")
+    return payload
+
+
+def _describe_task(*, region: str, cluster: str, task_arn: str) -> dict[str, object]:
+    if sys.platform == "win32":
+        response = _aws_cli_json(
+            ["ecs", "describe-tasks", "--cluster", cluster, "--tasks", task_arn],
+            region=region,
+        )
+        return response["tasks"][0]  # type: ignore[index,return-value]
+
     import boto3
 
     client = boto3.client("ecs", region_name=region)
+    return client.describe_tasks(cluster=cluster, tasks=[task_arn])["tasks"][0]
+
+
+def _ecs_wait_stopped(*, region: str, cluster: str, task_arn: str, timeout_s: float = 120.0) -> str:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        described = client.describe_tasks(cluster=cluster, tasks=[task_arn])["tasks"][0]
+        described = _describe_task(region=region, cluster=cluster, task_arn=task_arn)
         if described["lastStatus"] == "STOPPED":
             containers = described.get("containers", [{}])
             exit_code = containers[0].get("exitCode")

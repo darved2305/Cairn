@@ -17,10 +17,31 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
+import sys
 from typing import Any, Protocol
 
 TITAN_MODEL_ID = "amazon.titan-embed-text-v2:0"
 EMBEDDING_DIM = 1024
+
+_WINDOWS_TITAN_PROBE = """\
+import json
+import sys
+
+request = json.loads(sys.stdin.read())
+try:
+    import boto3
+    client = boto3.client("bedrock-runtime", region_name=request["region"])
+    response = client.invoke_model(
+        modelId=request["model_id"],
+        body=json.dumps(request["body"]),
+        contentType="application/json",
+        accept="application/json",
+    )
+    print(json.dumps({"ok": True, "payload": json.loads(response["body"].read())}))
+except Exception as exc:
+    print(json.dumps({"ok": False, "error": str(exc)}))
+"""
 
 
 class EmbeddingError(RuntimeError):
@@ -48,6 +69,15 @@ class TitanEmbeddingProvider:
         return self._client
 
     def embed(self, text: str) -> list[float]:
+        # boto3/botocore and psycopg-binary each carry native OpenSSL on
+        # Windows. On affected hosts their DLLs conflict hard enough to abort
+        # the interpreter before Python can raise an exception. Keep the
+        # production Linux/ECS path direct, but isolate the real Bedrock call
+        # on Windows so a native child crash becomes a clean EmbeddingError
+        # and cannot take the CLI or console server down.
+        if sys.platform == "win32" and self._client is None:
+            return self._embed_windows_subprocess(text)
+
         client = self._get_client()
         try:
             response = client.invoke_model(
@@ -67,10 +97,46 @@ class TitanEmbeddingProvider:
         except (KeyError, TypeError, ValueError) as exc:
             raise EmbeddingError(f"could not parse Titan embedding response: {exc}") from exc
 
-        if not isinstance(embedding, list) or len(embedding) != EMBEDDING_DIM:
-            got = len(embedding) if isinstance(embedding, list) else type(embedding).__name__
-            raise EmbeddingError(f"Titan returned dimension {got}, expected {EMBEDDING_DIM}")
-        return [float(v) for v in embedding]
+        return _validated_embedding(embedding)
+
+    def _embed_windows_subprocess(self, text: str) -> list[float]:
+        request = {
+            "region": self._region,
+            "model_id": TITAN_MODEL_ID,
+            "body": {"inputText": text, "dimensions": EMBEDDING_DIM, "normalize": True},
+        }
+        try:
+            completed = subprocess.run(
+                [sys.executable, "-c", _WINDOWS_TITAN_PROBE],
+                input=json.dumps(request),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise EmbeddingError("Bedrock Titan embedding call timed out after 30s") from exc
+        lines = [line for line in completed.stdout.splitlines() if line.strip()]
+        if not lines:
+            detail = completed.stderr.strip()[:300] or f"child exit code {completed.returncode}"
+            raise EmbeddingError(f"Bedrock Titan subprocess failed before returning JSON: {detail}")
+        try:
+            result = json.loads(lines[-1])
+        except json.JSONDecodeError as exc:
+            raise EmbeddingError("Bedrock Titan subprocess returned invalid JSON") from exc
+        if not result.get("ok"):
+            raise EmbeddingError(f"Bedrock Titan embedding call failed: {result.get('error')}")
+        payload = result.get("payload")
+        if not isinstance(payload, dict):
+            raise EmbeddingError(
+                "could not parse Titan embedding response: payload is not an object"
+            )
+        try:
+            embedding = payload["embedding"]
+        except KeyError as exc:
+            raise EmbeddingError(
+                "could not parse Titan embedding response: missing embedding"
+            ) from exc
+        return _validated_embedding(embedding)
 
 
 class OfflineFallbackEmbeddingProvider:
@@ -106,6 +172,13 @@ def _seeded_unit_vector(text: str, dim: int) -> list[float]:
     if norm == 0:
         return values
     return [v / norm for v in values]
+
+
+def _validated_embedding(embedding: object) -> list[float]:
+    if not isinstance(embedding, list) or len(embedding) != EMBEDDING_DIM:
+        got = len(embedding) if isinstance(embedding, list) else type(embedding).__name__
+        raise EmbeddingError(f"Titan returned dimension {got}, expected {EMBEDDING_DIM}")
+    return [float(v) for v in embedding]
 
 
 def default_provider() -> EmbeddingProvider:

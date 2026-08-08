@@ -1,4 +1,4 @@
-.PHONY: cluster local-cluster local-cluster-down migrate seed demo race teardown check test test-integration lint typecheck fmt tui tui-test tui-check
+.PHONY: cluster local-cluster local-cluster-down migrate seed demo race teardown check test test-integration lint typecheck fmt tui tui-test tui-check console console-build console-check
 
 # Every recipe below runs with hash randomization pinned off — workload/
 # determinism.py refuses to run otherwise (PYTHONHASHSEED can only be set
@@ -57,6 +57,20 @@ test-integration:
 fmt:
 	uv run ruff format src tests scripts
 	uv run ruff check --fix src tests scripts
+
+# Serve the console (API + built SPA) on :8000 against CAIRN_DATABASE_URL.
+# Build the frontend first (`make console-build`) or this serves the API only
+# and you drive the UI from Vite's dev server instead.
+console:
+	uv run uvicorn cairn.console.api:app --host 0.0.0.0 --port 8000
+
+# Build the React SPA. FastAPI picks dist/ up automatically in a dev checkout;
+# the Dockerfile copies it to src/cairn/console/static for the image.
+console-build:
+	cd console/frontend && npm ci --no-audit --no-fund && npm run build
+
+console-check:
+	cd console/frontend && npm run typecheck
 
 # Build the interactive terminal (tui/) — `cairn` (bare, no subcommand,
 # TTY stdout) launches tui/dist/index.js as a subprocess. Run once after

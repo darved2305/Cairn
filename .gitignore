@@ -20,6 +20,10 @@ tui/node_modules/
 tui/dist/
 console/frontend/node_modules/
 console/frontend/dist/
+console/frontend/*.tsbuildinfo
+# The built SPA is copied here by the Dockerfile's frontend stage, and by
+# `make console-build` on a dev checkout — an emitted artifact, not source.
+src/cairn/console/static/
 
 # terraform (added later)
 .terraform/

@@ -26,11 +26,15 @@ RUN pip install --no-cache-dir uv==0.10.7
 # command pointed at a python that doesn't exist in the final image.
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-COPY src ./src
-COPY README.md ./
 
 # --no-dev: the image runs the app, not the test suite; ruff/mypy/pytest
 # have no reason to ship to production.
+# Install the locked third-party environment before copying project source,
+# so an application-only fix does not download and recopy the full ML stack.
+RUN uv sync --frozen --no-dev --no-install-project
+
+COPY src ./src
+COPY README.md ./
 RUN uv sync --frozen --no-dev
 
 # The console's React SPA. PROJECT.md §6.1 commits to "one image, one deploy

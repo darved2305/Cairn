@@ -380,6 +380,232 @@ def scout_command(
     raise ChildExit(result.child_exit_code)
 
 
+@app.command(
+    "exec",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+@_graceful
+def exec_command(
+    ctx: typer.Context,
+    output_file: Annotated[
+        Path,
+        typer.Option("--output-file", help="Exactly one regular output file (v0.1)."),
+    ] = Path(".cairn/out/result.bin"),
+    contract: Annotated[
+        str,
+        typer.Option(
+            "--contract",
+            help="shadow | deterministic-file/v1 | jsonl-map/v1 (default shadow).",
+        ),
+    ] = "shadow",
+    qualify: Annotated[
+        bool,
+        typer.Option("--qualify", help="Run candidate twice; promote only on exact match."),
+    ] = False,
+    remote: Annotated[
+        str,
+        typer.Option("--remote", help="local | ecs | auto (default local)."),
+    ] = "local",
+    oci_image: Annotated[
+        str | None,
+        typer.Option("--oci-image", help="Full immutable OCI ref REPO@sha256:HEX."),
+    ] = None,
+    input_file: Annotated[
+        Path | None,
+        typer.Option("--input-file", help="Required by jsonl-map/v1."),
+    ] = None,
+    id_field: Annotated[
+        str,
+        typer.Option("--id-field", help="Stable id field for jsonl-map/v1."),
+    ] = "id",
+    partitions: Annotated[
+        int,
+        typer.Option("--partitions", help="Fixed at 64 for the submitted adapter."),
+    ] = 64,
+    env_name: Annotated[
+        list[str] | None,
+        typer.Option("--env", help="Explicitly pass/hash an environment entry."),
+    ] = None,
+    network: Annotated[
+        str,
+        typer.Option("--network", help="deny | volatile"),
+    ] = "deny",
+    namespace_id: Annotated[
+        str, typer.Option("--namespace", help="Requested namespace boundary.")
+    ] = "local",
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Emit machine-readable exec receipt.")
+    ] = False,
+) -> None:
+    """Plan/restore/subscribe/takeover/run under a named contract.
+
+    Usage: ``cairn exec --contract … --output-file FILE -- COMMAND``
+
+    Progressive trust (§15): shadow never reuses; deterministic-file/v1 is
+    user-asserted ``COMPLETE_DECLARED`` purity; jsonl-map/v1 may coalesce
+    first live work but never future-reuses a mere candidate. Gate A: opaque
+    arbitrary exec stays ``SHADOW_UNQUALIFIED``.
+    """
+    import platform as py_platform
+    import sys as py_sys
+
+    from cairn.flight.contracts import (
+        CONTRACT_DETERMINISTIC_FILE,
+        CONTRACT_JSONL_MAP,
+        CONTRACT_SHADOW,
+        KNOWN_CONTRACTS,
+        build_execution_spec,
+        jsonl_map_adapter_contract,
+        parse_oci_image_ref,
+    )
+    from cairn.flight.executor import execute
+    from cairn.flight.types import PlatformContract
+
+    if contract not in KNOWN_CONTRACTS:
+        typer.echo(
+            f"cairn exec: unknown --contract {contract!r}; "
+            f"known={sorted(KNOWN_CONTRACTS)}",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    if remote not in {"local", "ecs", "auto"}:
+        typer.echo("cairn exec: --remote must be local|ecs|auto", err=True)
+        raise typer.Exit(code=2)
+    if network not in {"deny", "volatile"}:
+        typer.echo("cairn exec: --network must be deny|volatile", err=True)
+        raise typer.Exit(code=2)
+
+    raw_args = list(ctx.args)
+    if raw_args and raw_args[0] == "--":
+        raw_args = raw_args[1:]
+    if not raw_args:
+        typer.echo("cairn exec: COMMAND is required after --", err=True)
+        raise typer.Exit(code=2)
+
+    full_ref, image_digest = parse_oci_image_ref(oci_image)
+    if contract != CONTRACT_SHADOW and remote == "ecs" and image_digest is None:
+        typer.echo(
+            "cairn exec: verified/ECS paths require --oci-image REPO@sha256:HEX",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    if remote == "ecs" and contract != CONTRACT_JSONL_MAP:
+        typer.echo(
+            "cairn exec: --remote ecs is only permitted for jsonl-map/v1",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    if remote == "auto":
+        remote = "ecs" if contract == CONTRACT_JSONL_MAP and image_digest else "local"
+
+    root = Path.cwd().resolve()
+    try:
+        output_rel = output_file.resolve().relative_to(root).as_posix()
+    except ValueError:
+        typer.echo("cairn exec: --output-file must be inside the workspace", err=True)
+        raise typer.Exit(code=2) from None
+
+    os_name = "linux" if py_sys.platform.startswith("linux") else py_sys.platform
+    machine = py_platform.machine().lower()
+    arch = "arm64" if machine in {"aarch64", "arm64"} else "amd64"
+    platform = PlatformContract(os=os_name, arch=arch, image_digest=image_digest)
+
+    adapter = None
+    declared_paths: tuple[Path, ...] = ()
+    if contract == CONTRACT_JSONL_MAP:
+        if input_file is None:
+            typer.echo("cairn exec: jsonl-map/v1 requires --input-file", err=True)
+            raise typer.Exit(code=2)
+        if partitions != 64:
+            typer.echo("cairn exec: jsonl-map/v1 partitions are fixed at 64", err=True)
+            raise typer.Exit(code=2)
+        mapper = Path("examples/embed_mapper.py")
+        if not mapper.is_file():
+            typer.echo("cairn exec: bundled examples/embed_mapper.py missing", err=True)
+            raise typer.Exit(code=2)
+        adapter = jsonl_map_adapter_contract(mapper_path=mapper, partitions=partitions)
+        declared_paths = (input_file.resolve(),)
+
+    env_names = tuple(env_name or ())
+    spec = build_execution_spec(
+        contract_id=contract,
+        argv=tuple(raw_args),
+        cwd_rel=".",
+        output_rel=output_rel,
+        namespace_id=namespace_id,
+        platform=platform,
+        env_names=env_names,
+        network=network,
+        adapter=adapter,
+    )
+
+    if contract == CONTRACT_DETERMINISTIC_FILE:
+        typer.echo(
+            "note       COMPLETE_DECLARED — user-asserted purity under "
+            "deterministic-file/v1; tracing did not prove determinism",
+            err=True,
+        )
+    if qualify:
+        typer.echo(
+            "note       --qualify runs the command twice and promotes only "
+            "an exact canonical match (cost before value)",
+            err=True,
+        )
+
+    bucket = os.environ.get("CAIRN_S3_BUCKET")
+    pool = get_pool()
+    result = execute(
+        pool,
+        spec=spec,
+        argv=raw_args,
+        output_file=output_file,
+        workspace=root,
+        bucket=bucket,
+        remote=remote,
+        qualify=qualify,
+        declared_input_paths=declared_paths,
+    )
+    close_pool()
+
+    payload = {
+        "action": result.action.value,
+        "authorized_by": result.authorized_by,
+        "coverage_state": result.coverage_state.value,
+        "semantic_work_key": result.semantic_work_key,
+        "observation_id": str(result.observation_id) if result.observation_id else None,
+        "derivation_id": str(result.derivation_id) if result.derivation_id else None,
+        "blob_digest": result.blob_digest,
+        "owner_id": result.owner_id,
+        "task_arn": result.task_arn,
+        "generation": result.generation,
+        "fence": result.fence,
+        "child_exit_code": result.child_exit_code,
+        "reasons": list(result.reasons),
+        "contract": contract,
+        "oci_image": full_ref,
+        "output_file": str(result.output_path),
+    }
+    if as_json:
+        typer.echo(json.dumps(payload, sort_keys=True, indent=2))
+    else:
+        typer.echo(f"action     {result.action.value}")
+        typer.echo(f"coverage   {result.coverage_state.value}")
+        if result.authorized_by:
+            typer.echo(f"authority  {result.authorized_by}")
+        if result.blob_digest:
+            typer.echo(f"blob       {result.blob_digest}")
+        if result.owner_id:
+            typer.echo(f"owner      {result.owner_id}")
+        if result.task_arn:
+            typer.echo(f"task_arn   {result.task_arn}")
+        if result.reasons:
+            typer.echo("reasons    " + "; ".join(result.reasons))
+        typer.echo(f"child_exit {result.child_exit_code}")
+
+    emit_event("exec.completed", payload)
+    raise ChildExit(result.child_exit_code)
+
+
 @app.command("plan")
 @_graceful
 def plan_command(

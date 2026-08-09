@@ -102,6 +102,12 @@ def test_pipeline_reflects_latest_decision_and_artifact_per_stage(pool) -> None:
         ),
     )
 
+    def _candidates(cur):
+        cur.execute("SELECT decision_id, candidate_artifact_id FROM reuse_decisions")
+        return {str(row[0]): row[1] for row in cur.fetchall()}
+
+    candidates = in_txn(pool, _candidates, op="test.console_pipeline_candidates")
+
     with TestClient(app) as client:
         response = client.get("/api/pipeline")
     assert response.status_code == 200
@@ -117,6 +123,22 @@ def test_pipeline_reflects_latest_decision_and_artifact_per_stage(pool) -> None:
         assert checkpoint["latest_decision"]["decision_id"] != str(decision_id)
     if checkpoint["latest_artifact"] is not None:
         assert checkpoint["latest_artifact"]["artifact_id"] != artifact_id
+
+    # A stage card is one causal story: its artifact must be the candidate
+    # cited by its latest decision, never an independently newer artifact
+    # from a different scenario run.
+    for status in stages.values():
+        decision = status["latest_decision"]
+        if decision is None:
+            continue
+
+        candidate_artifact_id = candidates[decision["decision_id"]]
+        artifact = status["latest_artifact"]
+        if candidate_artifact_id is None:
+            assert artifact is None
+        else:
+            assert artifact is not None
+            assert artifact["artifact_id"] == candidate_artifact_id
 
 
 def test_decisions_list_is_paginated_and_ordered(pool) -> None:

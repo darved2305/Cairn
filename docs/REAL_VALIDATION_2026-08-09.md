@@ -440,3 +440,15 @@ appended below as they are obtained.
   proposal provenance. The real stream renders the refusal as
   `by rule (proposal only)` and the identity-authorized remediation as
   `by identity`.
+
+### Defect 9 — console graph crossed scenario provenance
+
+- The revision-9 deployed endpoint smoke returned five valid pipeline rows,
+  but checkpoint paired the latest remediation decision/work key with the
+  independently newest checkpoint artifact from the earlier hidden-dimension
+  experiment; eval had the same cross-run mismatch. Every value was real,
+  but their combination told a false causal story.
+- Pipeline status now resolves `latest_artifact` through the latest decision's
+  own `candidate_artifact_id`. Only a stage with no decision at all falls back
+  to the newest stage artifact; a decision that cites no artifact displays no
+  artifact. The integration assertion checks this invariant for every stage.

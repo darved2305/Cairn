@@ -200,35 +200,59 @@ def _row_to_probe(row: tuple[object, ...]) -> ProbeRunSummary:
 
 
 def pipeline_status(pool: ConnectionPool) -> list[StageStatus]:
-    """One row per fixed pipeline stage: its most recent decision (if any)
-    and most recent artifact (if any) — independent lookups, because a
-    stage can have an artifact from claims.complete() without ever having
-    gone through db/decisions.py, and vice versa is possible too."""
+    """One coherent row per fixed pipeline stage.
+
+    When a decision exists, its card must carry the artifact that decision
+    actually cites. Pairing it with the independently newest stage artifact
+    can cross two scenario runs and display a false causal story. Only stages
+    with no decision at all fall back to their newest artifact.
+    """
 
     def _tx(cur: psycopg.Cursor) -> list[StageStatus]:
         statuses = []
         for stage in PIPELINE_STAGES:
             cur.execute(
                 f"""
-                SELECT {_DECISION_COLUMNS} FROM reuse_decisions d
+                SELECT {_DECISION_COLUMNS}, candidate_artifact_id FROM reuse_decisions d
                  WHERE d.stage = %s AND {_PRODUCT_DECISION_FILTER}
                  ORDER BY d.created_at DESC LIMIT 1
                 """,
                 (stage,),
             )
-            decision_row = cur.fetchone()
-            decision = _row_to_decision(decision_row) if decision_row else None
+            row = cur.fetchone()
+            if row is not None:
+                *decision_columns, candidate_artifact_id = row
+                decision = _row_to_decision(tuple(decision_columns))
+            else:
+                decision = None
+                candidate_artifact_id = None
 
-            cur.execute(
-                f"""
-                SELECT artifact_id, stage, work_key, s3_uri, size_bytes,
-                       duration_ms, region, quarantined_at, created_at
-                  FROM artifacts
-                 WHERE stage = %s AND {_PRODUCT_ARTIFACT_FILTER}
-                 ORDER BY created_at DESC LIMIT 1
-                """,
-                (stage,),
-            )
+            if candidate_artifact_id is not None:
+                cur.execute(
+                    f"""
+                    SELECT artifact_id, stage, work_key, s3_uri, size_bytes,
+                           duration_ms, region, quarantined_at, created_at
+                      FROM artifacts
+                     WHERE artifact_id = %s AND {_PRODUCT_ARTIFACT_FILTER}
+                    """,
+                    (candidate_artifact_id,),
+                )
+            elif decision is None:
+                cur.execute(
+                    f"""
+                    SELECT artifact_id, stage, work_key, s3_uri, size_bytes,
+                           duration_ms, region, quarantined_at, created_at
+                      FROM artifacts
+                     WHERE stage = %s AND {_PRODUCT_ARTIFACT_FILTER}
+                     ORDER BY created_at DESC LIMIT 1
+                    """,
+                    (stage,),
+                )
+            else:
+                statuses.append(
+                    StageStatus(stage=stage, latest_decision=decision, latest_artifact=None)
+                )
+                continue
             artifact_row = cur.fetchone()
             artifact = _row_to_artifact(artifact_row) if artifact_row else None
 

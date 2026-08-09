@@ -802,3 +802,73 @@ def _assemble_savings(
         cost_unavailable_reason=None,
         decisions_total=total,
     )
+
+
+@dataclass(frozen=True)
+class FlightExecRow:
+    """Day-3 console row: action, authority, coverage, integrity, owner, task."""
+
+    decision_id: uuid.UUID
+    action: str
+    authorized_by: str | None
+    coverage_state: str | None
+    blob_digest: str | None
+    blob_integrity: str | None
+    derivation_state: str | None
+    owner_id: str | None
+    task_arn: str | None
+    observation_lifecycle: str | None
+    semantic_work_key: str | None
+    generation: int | None
+    explanation: str
+    created_at: datetime
+
+
+def list_flight_executions(pool: ConnectionPool, *, limit: int = 25) -> list[FlightExecRow]:
+    """Recent Flight Recorder decisions joined to coverage / blob integrity."""
+
+    def _tx(cur: psycopg.Cursor) -> list[FlightExecRow]:
+        cur.execute(
+            """
+            SELECT d.decision_id, d.action, d.authorized_by, d.explanation, d.created_at,
+                   t.coverage_state, b.blob_digest, b.integrity_state,
+                   der.state, wc.owner_id, r.task_arn, o.lifecycle_state,
+                   der.semantic_work_key, der.generation
+              FROM reuse_decisions AS d
+              LEFT JOIN trace_observations AS o ON o.observation_id = d.observation_id
+              LEFT JOIN trace_contents AS t ON t.trace_digest = o.trace_digest
+              LEFT JOIN derivations AS der ON der.derivation_id = d.derivation_id
+              LEFT JOIN content_blobs AS b ON b.blob_digest = der.blob_digest
+              LEFT JOIN work_generations AS g
+                ON g.namespace_id = der.namespace_id
+               AND g.semantic_work_key = der.semantic_work_key
+               AND g.generation = der.generation
+              LEFT JOIN work_claims AS wc ON wc.work_key = g.claim_key
+              LEFT JOIN runs AS r ON r.run_id = der.produced_by_run
+             WHERE d.derivation_id IS NOT NULL OR d.observation_id IS NOT NULL
+             ORDER BY d.created_at DESC
+             LIMIT %s
+            """,
+            (limit,),
+        )
+        return [
+            FlightExecRow(
+                decision_id=row[0],
+                action=row[1],
+                authorized_by=row[2],
+                explanation=row[3],
+                created_at=row[4],
+                coverage_state=row[5],
+                blob_digest=row[6],
+                blob_integrity=row[7],
+                derivation_state=row[8],
+                owner_id=row[9],
+                task_arn=row[10],
+                observation_lifecycle=row[11],
+                semantic_work_key=row[12],
+                generation=row[13],
+            )
+            for row in cur.fetchall()
+        ]
+
+    return in_txn(pool, _tx, op="console.list_flight_executions")

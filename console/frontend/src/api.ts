@@ -104,6 +104,23 @@ export interface ClaimRow {
   transfers: OwnershipTransfer[];
 }
 
+export interface FlightExecRow {
+  decision_id: string;
+  action: string;
+  authorized_by: string | null;
+  coverage_state: string | null;
+  blob_digest: string | null;
+  blob_integrity: string | null;
+  derivation_state: string | null;
+  owner_id: string | null;
+  task_arn: string | null;
+  observation_lifecycle: string | null;
+  semantic_work_key: string | null;
+  generation: number | null;
+  explanation: string;
+  created_at: string;
+}
+
 export interface RemediationView {
   changed_keys: Array<Record<string, unknown>>;
   rationale: string;
@@ -267,6 +284,10 @@ export const api = {
   decision: (id: string) => request<DecisionDetail>(`/api/decisions/${id}`),
   claims: (limit = 50) =>
     request<{ claims: ClaimRow[]; count: number }>(`/api/claims?limit=${limit}`),
+  flightExecutions: (limit = 25) =>
+    request<{ executions: FlightExecRow[]; count: number }>(
+      `/api/flight/executions?limit=${limit}`,
+    ),
   savings: () => request<Savings>("/api/savings"),
   memorySearch: (q: string, limit = 8) =>
     request<MemorySearchResponse>(

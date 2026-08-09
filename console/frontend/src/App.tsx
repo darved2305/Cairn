@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DemoRunResponse, DemoState } from "./api";
 import { api } from "./api";
-import { ClaimTheatre, CausalGraph, DecisionLedger, PanelFrame } from "./panels";
+import { ClaimTheatre, CausalGraph, DecisionLedger, FlightExecPanel, PanelFrame } from "./panels";
 import { NegativeMemory, SavingsStrip } from "./memory";
 import {
   ConsoleSection,
@@ -117,6 +117,13 @@ export default function App() {
             subtitle="Live work_claims during a race: both workers, their regions, who won, the fence value, and the loser's subscription progress."
           >
             <ClaimTheatre />
+          </PanelFrame>
+
+          <PanelFrame
+            title="3b · Flight Recorder"
+            subtitle="action, authorized_by, coverage state, derivation/blob integrity, owner, and task ARN from named-contract exec."
+          >
+            <FlightExecPanel />
           </PanelFrame>
 
           <PanelFrame

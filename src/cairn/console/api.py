@@ -118,6 +118,16 @@ def claims(limit: int = 50, include_validation: bool = False) -> dict[str, objec
     }
 
 
+@app.get("/api/flight/executions")
+def flight_executions(limit: int = 25) -> dict[str, object]:
+    """Flight Recorder exec surface — action, authority, coverage, integrity."""
+
+    if not (1 <= limit <= 100):
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
+    rows = queries.list_flight_executions(get_pool(), limit=limit)
+    return {"executions": rows, "count": len(rows)}
+
+
 @app.get("/api/memory/search")
 def memory_search(
     q: str,

@@ -10,7 +10,7 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
-import type { ClaimRow, DecisionDetail, DecisionSummary, StageStatus } from "./api";
+import type { ClaimRow, DecisionDetail, DecisionSummary, FlightExecRow, StageStatus } from "./api";
 import { api, fmtBytes, fmtMs, fmtWhen, shortId } from "./api";
 import { Async, Card, EmptyState, Field, Mono, Pill, Skeleton, VerdictBadge, useAsync } from "./ui";
 
@@ -449,6 +449,88 @@ export function PanelFrame({
       </div>
       {children}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Flight Recorder — action / authority / coverage / integrity / owner / task
+// ---------------------------------------------------------------------------
+
+export function FlightExecPanel() {
+  const { state } = useAsync(() => api.flightExecutions(25), [], 5000);
+
+  return (
+    <Async state={state} rows={5}>
+      {(data) =>
+        data.executions.length === 0 ? (
+          <EmptyState
+            what="No Flight Recorder executions yet"
+            why="cairn exec under a named contract writes reuse_decisions linked to observations and derivations. Run one against this cluster to populate this panel."
+          />
+        ) : (
+          <ol className="divide-y divide-rule overflow-hidden rounded-xl border border-rule bg-white">
+            {data.executions.map((row: FlightExecRow) => (
+              <li key={row.decision_id} className="grid gap-3 p-4 sm:grid-cols-[1fr_auto]">
+                <div className="min-w-0 space-y-2">
+                  <p className="text-sm font-medium">
+                    <span className="font-mono">{row.action}</span>
+                    {row.authorized_by && (
+                      <span className="text-ink-3">
+                        {" "}
+                        · authorized_by <strong className="text-ink-2">{row.authorized_by}</strong>
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-sm text-ink-2">{row.explanation}</p>
+                  <dl className="flex flex-wrap gap-x-4 gap-y-1 text-[0.72rem] text-ink-3">
+                    <span>
+                      coverage{" "}
+                      <Mono>{row.coverage_state ?? "—"}</Mono>
+                    </span>
+                    <span>
+                      observation{" "}
+                      <Mono>{row.observation_lifecycle ?? "—"}</Mono>
+                    </span>
+                    <span>
+                      derivation{" "}
+                      <Mono>{row.derivation_state ?? "—"}</Mono>
+                    </span>
+                    <span>
+                      blob{" "}
+                      <Mono>{row.blob_integrity ?? "—"}</Mono>
+                      {row.blob_digest && (
+                        <>
+                          {" "}
+                          <Mono title={row.blob_digest}>{shortId(row.blob_digest, 12)}</Mono>
+                        </>
+                      )}
+                    </span>
+                    {row.owner_id && (
+                      <span>
+                        owner <Mono title={row.owner_id}>{shortId(row.owner_id, 16)}</Mono>
+                      </span>
+                    )}
+                    {row.task_arn && (
+                      <span>
+                        task <Mono title={row.task_arn}>{shortId(row.task_arn, 20)}</Mono>
+                      </span>
+                    )}
+                    {row.generation != null && (
+                      <span>
+                        gen <Mono>{String(row.generation)}</Mono>
+                      </span>
+                    )}
+                  </dl>
+                </div>
+                <div className="text-right text-[0.72rem] text-ink-3">
+                  <p>{fmtWhen(row.created_at)}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )
+      }
+    </Async>
   );
 }
 

@@ -54,9 +54,7 @@ class LeafPipelineError(RuntimeError):
 
 
 def _digest(label: str, body: object) -> Digest:
-    return hashlib.sha256(
-        canonical_json({"label": label, "v": _SCHEMA, "body": body})
-    ).hexdigest()
+    return hashlib.sha256(canonical_json({"label": label, "v": _SCHEMA, "body": body})).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -648,7 +646,10 @@ def run_leaf_pipeline(
         stage_label="root",
         decision_explanation="jsonl-map/v1 root assembled from 64 leaves",
     )
-    if outcome not in (flight_db.PublishOutcome.PUBLISHED, flight_db.PublishOutcome.ALREADY_PRESENT):
+    if outcome not in (
+        flight_db.PublishOutcome.PUBLISHED,
+        flight_db.PublishOutcome.ALREADY_PRESENT,
+    ):
         raise LeafPipelineError(f"root publish failed: {outcome.value}")
 
     flight_db.record_composite_derivation(
@@ -688,4 +689,3 @@ def run_leaf_pipeline(
         leaves=ordered_leaves,
         output_path=out_path,
     )
-

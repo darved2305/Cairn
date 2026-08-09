@@ -178,8 +178,15 @@ def verify_receipt(receipt: Receipt) -> list[str]:
     found; an empty list means every digest it claims checked out against S3."""
     problems: list[str] = []
 
-    def _check(label: str, blob_digest: str, s3_bucket: str, object_key: str, version_id: str,
-               checksum_sha256: str, size_bytes: int) -> None:
+    def _check(
+        label: str,
+        blob_digest: str,
+        s3_bucket: str,
+        object_key: str,
+        version_id: str,
+        checksum_sha256: str,
+        size_bytes: int,
+    ) -> None:
         ref = ContentBlobRef(
             blob_digest=blob_digest,
             bucket=s3_bucket,

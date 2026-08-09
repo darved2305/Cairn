@@ -463,8 +463,7 @@ def exec_command(
 
     if contract not in KNOWN_CONTRACTS:
         typer.echo(
-            f"cairn exec: unknown --contract {contract!r}; "
-            f"known={sorted(KNOWN_CONTRACTS)}",
+            f"cairn exec: unknown --contract {contract!r}; known={sorted(KNOWN_CONTRACTS)}",
             err=True,
         )
         raise typer.Exit(code=2)
@@ -569,9 +568,7 @@ def exec_command(
 
         host = py_socket.gethostname()
         region = (
-            os.environ.get("CAIRN_WORKER_REGION")
-            or os.environ.get("CAIRN_AWS_REGION")
-            or "local"
+            os.environ.get("CAIRN_WORKER_REGION") or os.environ.get("CAIRN_AWS_REGION") or "local"
         )
         owner = f"local/{host}"
         pool = get_pool()
@@ -598,7 +595,9 @@ def exec_command(
         leaf_payload = {
             "action": root_outcome.action,
             "root_semantic_work_key": root_outcome.root_key,
-            "derivation_id": str(root_outcome.derivation_id) if root_outcome.derivation_id else None,
+            "derivation_id": str(root_outcome.derivation_id)
+            if root_outcome.derivation_id
+            else None,
             "blob_digest": root_outcome.blob_digest,
             "merkle_root": root_outcome.merkle_root,
             "leaf_count": len(root_outcome.leaves),
@@ -613,7 +612,9 @@ def exec_command(
             typer.echo(json.dumps(leaf_payload, sort_keys=True, indent=2))
         else:
             typer.echo(f"action     {root_outcome.action}")
-            typer.echo(f"leaves     {len(root_outcome.leaves)} total · {reused} restore · {computed} compute")
+            typer.echo(
+                f"leaves     {len(root_outcome.leaves)} total · {reused} restore · {computed} compute"
+            )
             typer.echo(f"root       sha256:{root_outcome.blob_digest}")
             typer.echo(f"merkle     {root_outcome.merkle_root}")
             if changed_buckets:

@@ -48,7 +48,10 @@ def main(argv: list[str] | None = None) -> int:
             text = _text_for_row(obj)
             vec = model.encode([text], batch_size=1, show_progress_bar=False, convert_to_numpy=True)
             arr = np.asarray(vec, dtype="<f4")[0]
-            out_obj = {args.id_field: obj[args.id_field], "embedding": [float(x) for x in arr.tolist()]}
+            out_obj = {
+                args.id_field: obj[args.id_field],
+                "embedding": [float(x) for x in arr.tolist()],
+            }
             records.append((row.id_bytes, canonical_json(out_obj)))
 
     records.sort(key=lambda pair: pair[0])

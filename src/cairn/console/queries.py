@@ -960,6 +960,7 @@ def leaf_map_for_root(pool: ConnectionPool, root_semantic_work_key: str) -> Leaf
             )
             for r in cur.fetchall()
         ]
+
         def _as_int(value: object) -> int | None:
             return value if isinstance(value, int) else None
 

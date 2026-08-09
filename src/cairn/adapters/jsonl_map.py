@@ -48,9 +48,7 @@ class JsonlMapError(ValueError):
 
 class DuplicateIdError(JsonlMapError):
     def __init__(self, stable_id: str, first_line: int, dup_line: int) -> None:
-        super().__init__(
-            f"duplicate stable id {stable_id!r} at lines {first_line} and {dup_line}"
-        )
+        super().__init__(f"duplicate stable id {stable_id!r} at lines {first_line} and {dup_line}")
         self.stable_id = stable_id
 
 
@@ -63,12 +61,12 @@ class MissingIdError(JsonlMapError):
 def _json_digest(label: str, body: object) -> Digest:
     """Domain-separated digest of a JSON-shaped payload — same recipe as
     ``flight/identity.py``'s ``_digest``, deliberately not a second encoder."""
-    return sha256(
-        canonical_json({"label": label, "v": SCHEMA_VERSION, "body": body})
-    ).hexdigest()
+    return sha256(canonical_json({"label": label, "v": SCHEMA_VERSION, "body": body})).hexdigest()
 
 
-def _framed_digest(label: str, *, header_extra: dict[str, object], chunks: Sequence[bytes]) -> Digest:
+def _framed_digest(
+    label: str, *, header_extra: dict[str, object], chunks: Sequence[bytes]
+) -> Digest:
     """Digest of a length-prefixed byte stream, domain-separated by a
     canonical-JSON header. Rows are already canonical JSON bytes; re-wrapping
     them into a JSON array (base64-per-row) would work too but costs a copy
@@ -218,7 +216,11 @@ def microchunks(bucket: int, bucket_rows: Sequence[Row]) -> Iterator[Microchunk]
 def microchunk_key(leaf_key: Digest, index: int, input_digest: Digest) -> str:
     return _json_digest(
         "cairn/jsonl-microchunk/v1",
-        {"leaf_semantic_work_key": leaf_key, "microchunk_index": index, "input_digest": input_digest},
+        {
+            "leaf_semantic_work_key": leaf_key,
+            "microchunk_index": index,
+            "input_digest": input_digest,
+        },
     )
 
 

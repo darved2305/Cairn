@@ -612,16 +612,24 @@ def memory_why_blocked_command(
 
 
 @app.command("doctor")
-def doctor_command() -> None:
+def doctor_command(
+    cloud: Annotated[bool, typer.Option("--cloud", help="Include ccloud topology check.")] = False,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Emit a machine-readable JSON report on stdout.")
+    ] = False,
+) -> None:
     """Diagnose the environment — PROJECT.md §7.1: database, schema, vector
     index, ccloud cluster identity, and AWS credentials. Only the database
     and schema checks gate the exit code; ccloud/AWS/vector-index are
     reported honestly but never block a green `doctor` on a machine that
-    simply doesn't have them configured (PLAN.md §13's `--no-llm` risk
-    mitigation applies here too: a missing AWS/ccloud check must never
-    read as a Cairn bug)."""
+    simply doesn't have them configured.
 
-    gating_ok = True
+    ``--cloud --json`` is the Day-1 eligibility gate: documented
+    ``ccloud cluster info`` output is parsed into a normalized topology
+    record (or an explicit fail-closed reason). Never invent a ``--json``
+    flag on ccloud itself.
+    """
+    _ = cloud  # flag retained so the Appendix E gate command is a stable CLI
 
     try:
         pool = get_pool()
@@ -635,45 +643,49 @@ def doctor_command() -> None:
         db_ok, db_detail = True, version
     except Exception as exc:  # noqa: BLE001 - doctor must report, never crash
         db_ok, db_detail = False, f"unreachable: {exc}"
-    typer.echo(f"{'PASS' if db_ok else 'FAIL'}  database     {db_detail}")
-    gating_ok = gating_ok and db_ok
 
     schema_ok, schema_detail = _doctor_schema()
-    typer.echo(f"{'PASS' if schema_ok else 'FAIL'}  schema       {schema_detail}")
-    gating_ok = gating_ok and schema_ok
 
     try:
         status = vector_index_status(get_pool())
         vector_index_detail = status.detail
-        typer.echo(f"{'PASS' if status.active else 'INFO'}  vector-index {status.detail}")
+        vector_ok = status.active
     except Exception as exc:  # noqa: BLE001
         vector_index_detail = f"unavailable: {exc}"
-        typer.echo(f"INFO  vector-index unavailable: {exc}")
+        vector_ok = False
 
-    ccloud_detail = _doctor_ccloud()
-    typer.echo(f"INFO  ccloud       {ccloud_detail}")
-
+    ccloud_report = _doctor_ccloud_report()
     aws_ok, aws_detail = _doctor_aws()
-    typer.echo(f"{'PASS' if aws_ok else 'INFO'}  aws          {aws_detail}")
+    gating_ok = db_ok and schema_ok
+
+    report: dict[str, object] = {
+        "database_ok": db_ok,
+        "database_detail": db_detail,
+        "schema_ok": schema_ok,
+        "schema_detail": schema_detail,
+        "vector_index_ok": vector_ok,
+        "vector_index_detail": vector_index_detail,
+        "ccloud": ccloud_report,
+        "aws_ok": aws_ok,
+        "aws_detail": aws_detail,
+        "gating_ok": gating_ok,
+    }
+
+    if as_json:
+        typer.echo(json.dumps(report, sort_keys=True))
+    else:
+        typer.echo(f"{'PASS' if db_ok else 'FAIL'}  database     {db_detail}")
+        typer.echo(f"{'PASS' if schema_ok else 'FAIL'}  schema       {schema_detail}")
+        typer.echo(f"{'PASS' if vector_ok else 'INFO'}  vector-index {vector_index_detail}")
+        ccloud_line = ccloud_report.get("detail") or ccloud_report.get("fail_closed_reason")
+        typer.echo(f"INFO  ccloud       {ccloud_line}")
+        typer.echo(f"{'PASS' if aws_ok else 'INFO'}  aws          {aws_detail}")
+        if gating_ok:
+            typer.echo("Everything load-bearing looks healthy.")
 
     close_pool()
-    emit_event(
-        "doctor.completed",
-        {
-            "database_ok": db_ok,
-            "database_detail": db_detail,
-            "schema_ok": schema_ok,
-            "schema_detail": schema_detail,
-            "vector_index_detail": vector_index_detail,
-            "ccloud_detail": ccloud_detail,
-            "aws_ok": aws_ok,
-            "aws_detail": aws_detail,
-            "gating_ok": gating_ok,
-        },
-    )
-    if gating_ok:
-        typer.echo("Everything load-bearing looks healthy.")
-    else:
+    emit_event("doctor.completed", report)
+    if not gating_ok:
         raise typer.Exit(code=1)
 
 
@@ -681,7 +693,11 @@ def _doctor_schema() -> tuple[bool, str]:
     migrations_dir = Path(__file__).resolve().parents[2] / "db" / "migrations"
     if not migrations_dir.is_dir():
         return False, f"migrations directory not found at {migrations_dir}"
-    files = sorted(p.name for p in migrations_dir.glob("*.sql"))
+    files = sorted(
+        p.name
+        for p in migrations_dir.iterdir()
+        if p.is_file() and p.suffix in {".sql", ".py"} and not p.name.startswith("_")
+    )
     if not files:
         return False, f"no migration files found in {migrations_dir}"
     try:
@@ -700,28 +716,69 @@ def _doctor_schema() -> tuple[bool, str]:
     return True, f"{len(files)} migrations applied"
 
 
-def _doctor_ccloud() -> str:
+def _doctor_ccloud_report() -> dict[str, object]:
+    """Parse documented ``ccloud cluster info`` into a topology record.
+
+    Fail closed on missing binary, missing cluster name, nonzero exit, or
+    unrecognised output. Never call undocumented ``--json`` on ccloud.
+    """
+    from cairn.ccloud_parse import CcloudParseError, parse_cluster_info, topology_to_jsonable
+
     ccloud_path = shutil.which("ccloud")
     if ccloud_path is None:
-        return "ccloud not found on PATH (not installed / not configured)"
+        return {
+            "ok": False,
+            "fail_closed_reason": "ccloud not found on PATH (not installed / not configured)",
+            "detail": "ccloud not found on PATH (not installed / not configured)",
+        }
+    cluster_name = os.environ.get("CAIRN_CLUSTER_NAME", "").strip()
+    if not cluster_name:
+        return {
+            "ok": False,
+            "fail_closed_reason": "CAIRN_CLUSTER_NAME is unset; cannot run ccloud cluster info",
+            "detail": "CAIRN_CLUSTER_NAME is unset; cannot run ccloud cluster info",
+        }
     try:
         completed = subprocess.run(
-            ["ccloud", "cluster", "list", "--json"],
+            ["ccloud", "cluster", "info", cluster_name],
             capture_output=True,
             text=True,
             timeout=20,
         )
     except subprocess.TimeoutExpired:
-        return "ccloud cluster list timed out after 20s"
+        return {
+            "ok": False,
+            "fail_closed_reason": "ccloud cluster info timed out after 20s",
+            "detail": "ccloud cluster info timed out after 20s",
+        }
     if completed.returncode != 0:
-        return f"ccloud cluster list failed: {completed.stderr.strip()[:200]}"
+        err = (completed.stderr or completed.stdout or "").strip()[:200]
+        return {
+            "ok": False,
+            "fail_closed_reason": f"ccloud cluster info failed: {err}",
+            "detail": f"ccloud cluster info failed: {err}",
+        }
     try:
-        payload = json.loads(completed.stdout)
-    except json.JSONDecodeError:
-        return "ccloud responded but output was not valid JSON (tolerated, unknown shape)"
-    count = len(payload) if isinstance(payload, list) else "unknown-shape"
-    return f"reachable, {count} cluster(s)"
+        topo = parse_cluster_info(completed.stdout)
+    except CcloudParseError as exc:
+        return {
+            "ok": False,
+            "fail_closed_reason": f"ccloud output unrecognised (fail closed): {exc}",
+            "detail": f"ccloud output unrecognised (fail closed): {exc}",
+        }
+    payload = topology_to_jsonable(topo)
+    payload["ok"] = True
+    payload["detail"] = (
+        f"reachable, cluster={topo.cluster_name}, regions={list(topo.cluster_regions)}"
+    )
+    return payload
 
+
+def _doctor_ccloud() -> str:
+    """Human-readable one-liner used by non-JSON doctor output."""
+    report = _doctor_ccloud_report()
+    detail = report.get("detail") or report.get("fail_closed_reason")
+    return str(detail)
 
 # A tiny standalone script, run via `sys.executable -c`, not imported into
 # this process — isolates the real boto3 STS call in its own process so a

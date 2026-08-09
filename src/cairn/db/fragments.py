@@ -3,8 +3,13 @@
 A resuming worker looks up what it already has by `(work_key, fragment_index)`
 before recomputing anything; content is verified separately against S3 by
 digest (`storage/s3.py::get_fragment_verified`), not trusted from this table
-alone. Fenced the same way every other write in this codebase is: only the
-fence holder's fragment rows are ever written or trusted for resume.
+alone.
+
+Every write locks the live ``work_claims`` row and verifies
+``{owner_id, run_id, fence, state in (CLAIMED, RUNNING)}`` in the same
+SERIALIZABLE transaction. A dispossessed owner therefore cannot insert or
+overwrite fragment metadata after takeover — the previous blind upsert was
+a correctness hole the docstring falsely claimed was already closed.
 """
 
 from __future__ import annotations
@@ -12,6 +17,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 
 import psycopg
 from psycopg_pool import ConnectionPool
@@ -19,7 +25,20 @@ from psycopg_pool import ConnectionPool
 from cairn.db.txn import in_txn
 
 
-@dataclass(frozen=True)
+class FragmentFenceError(RuntimeError):
+    """Caller is not the live fence holder; the write was refused."""
+
+
+class FragmentNondeterminism(RuntimeError):
+    """Same fragment key already holds a different byte identity."""
+
+
+class FragmentCommitOutcome(StrEnum):
+    COMMITTED = "COMMITTED"
+    ALREADY_PRESENT = "ALREADY_PRESENT"
+
+
+@dataclass(frozen=True, slots=True)
 class FragmentRecord:
     work_key: str
     fragment_index: int
@@ -31,37 +50,91 @@ class FragmentRecord:
     created_at: datetime | None = None
 
 
+def _require_live_fence(
+    cur: psycopg.Cursor,
+    work_key: str,
+    *,
+    owner_id: str,
+    run_id: uuid.UUID,
+    fence: int,
+) -> None:
+    cur.execute(
+        """
+        SELECT owner_id, run_id, fence, state
+          FROM work_claims
+         WHERE work_key = %s
+         FOR UPDATE
+        """,
+        (work_key,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        raise FragmentFenceError(f"no claim row for work_key={work_key!r}")
+    live_owner, live_run, live_fence, state = row
+    if state not in ("CLAIMED", "RUNNING"):
+        raise FragmentFenceError(
+            f"claim work_key={work_key!r} state={state!r} is not writable"
+        )
+    if live_owner != owner_id or live_run != run_id or live_fence != fence:
+        raise FragmentFenceError(
+            f"fence mismatch for work_key={work_key!r}: "
+            f"caller=({owner_id!r}, {run_id}, {fence}) "
+            f"live=({live_owner!r}, {live_run}, {live_fence})"
+        )
+
+
 def record_fragment(
     pool: ConnectionPool,
     work_key: str,
     fragment_index: int,
     *,
+    owner_id: str,
     run_id: uuid.UUID,
     fence: int,
     s3_uri: str,
     content_digest: str,
     duration_ms: int,
-) -> None:
-    """Upsert one fragment row. `ON CONFLICT DO UPDATE` (not `DO NOTHING`):
-    a resumed run re-producing the same fragment index legitimately
-    overwrites the previous attempt's row with its own run_id/fence/s3_uri,
-    the same way `claims.acquire`'s takeover replaces the prior owner."""
+) -> FragmentCommitOutcome:
+    """Fenced insert into the five-stage ``run_fragments`` projection.
 
-    def _tx(cur: psycopg.Cursor) -> None:
+    ON CONFLICT accepts ONLY a byte-identical ``(s3_uri, content_digest)``
+    tuple. A different blob for the same key is nondeterminism, not an update
+    — the previous ``DO UPDATE`` let a takeover race rewrite reachability.
+    """
+
+    def _tx(cur: psycopg.Cursor) -> FragmentCommitOutcome:
+        _require_live_fence(
+            cur, work_key, owner_id=owner_id, run_id=run_id, fence=fence
+        )
+        cur.execute(
+            """
+            SELECT s3_uri, content_digest
+              FROM run_fragments
+             WHERE work_key = %s AND fragment_index = %s
+             FOR UPDATE
+            """,
+            (work_key, fragment_index),
+        )
+        existing = cur.fetchone()
+        if existing is not None:
+            prev_uri, prev_digest = existing
+            if prev_uri == s3_uri and prev_digest == content_digest:
+                return FragmentCommitOutcome.ALREADY_PRESENT
+            raise FragmentNondeterminism(
+                f"fragment work_key={work_key!r} index={fragment_index} already "
+                f"holds digest={prev_digest!r}; refusing digest={content_digest!r}"
+            )
         cur.execute(
             """
             INSERT INTO run_fragments
               (work_key, fragment_index, run_id, fence, s3_uri, content_digest, duration_ms)
             VALUES (%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT (work_key, fragment_index) DO UPDATE SET
-              run_id=excluded.run_id, fence=excluded.fence, s3_uri=excluded.s3_uri,
-              content_digest=excluded.content_digest, duration_ms=excluded.duration_ms,
-              created_at=now()
             """,
             (work_key, fragment_index, run_id, fence, s3_uri, content_digest, duration_ms),
         )
+        return FragmentCommitOutcome.COMMITTED
 
-    in_txn(pool, _tx, op="fragments.record_fragment")
+    return in_txn(pool, _tx, op="fragments.record_fragment")
 
 
 def list_fragments(pool: ConnectionPool, work_key: str) -> list[FragmentRecord]:

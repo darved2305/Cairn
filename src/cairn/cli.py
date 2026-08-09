@@ -726,12 +726,23 @@ def _doctor_ccloud_report() -> dict[str, object]:
 
     ccloud_path = shutil.which("ccloud")
     if ccloud_path is None:
+        # Persist install location used by Day-1 Windows setup.
+        candidate = Path(os.environ.get("APPDATA", "")) / "ccloud" / "ccloud.exe"
+        if candidate.is_file():
+            os.environ["PATH"] = f"{candidate.parent}{os.pathsep}{os.environ.get('PATH', '')}"
+            ccloud_path = str(candidate)
+    if ccloud_path is None:
         return {
             "ok": False,
             "fail_closed_reason": "ccloud not found on PATH (not installed / not configured)",
             "detail": "ccloud not found on PATH (not installed / not configured)",
         }
     cluster_name = os.environ.get("CAIRN_CLUSTER_NAME", "").strip()
+    if not cluster_name:
+        dotenv_path = find_dotenv(usecwd=True)
+        if dotenv_path:
+            load_dotenv(dotenv_path, override=False)
+        cluster_name = os.environ.get("CAIRN_CLUSTER_NAME", "").strip()
     if not cluster_name:
         return {
             "ok": False,
@@ -743,6 +754,8 @@ def _doctor_ccloud_report() -> dict[str, object]:
             ["ccloud", "cluster", "info", cluster_name],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=20,
         )
     except subprocess.TimeoutExpired:

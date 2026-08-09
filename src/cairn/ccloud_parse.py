@@ -56,8 +56,26 @@ def _parse_regions(fields: dict[str, str], region_nodes: dict[str, str]) -> tupl
     raw = fields.get("regions", "").strip()
     if not raw:
         return ()
-    parts = [p.strip() for p in re.split(r"[,\s]+", raw) if p.strip()]
-    return tuple(sorted(parts))
+    # Live Serverless output looks like "us-east-1 (primary)"; docs use bare
+    # "us-central1". Drop parenthetical role tags and keep region tokens only.
+    cleaned = re.sub(r"\([^)]*\)", " ", raw)
+    parts = [
+        p.strip().rstrip(",")
+        for p in re.split(r"[,\s]+", cleaned)
+        if p.strip() and re.fullmatch(r"[A-Za-z0-9-]+", p.strip())
+    ]
+    return tuple(sorted(dict.fromkeys(parts)))
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _normalize_raw(raw: str) -> str:
+    """Strip ANSI / spinner noise so labeled fields are what we hash and parse."""
+    text = _ANSI_RE.sub("", raw)
+    # UTF-16 leftovers from accidental Windows redirections are not expected
+    # from subprocess text=True, but a BOM is harmless to drop.
+    return text.lstrip("\ufeff")
 
 
 def parse_cluster_info(
@@ -66,6 +84,7 @@ def parse_cluster_info(
     observed_at: datetime | None = None,
 ) -> ClusterTopology:
     """Parse documented ``ccloud cluster info`` labeled text. Fail closed."""
+    raw = _normalize_raw(raw)
     if not raw or not raw.strip():
         raise CcloudParseError("empty ccloud cluster info output")
 
@@ -77,6 +96,9 @@ def parse_cluster_info(
     for line in raw.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("∙"):
+            continue
+        # Progress lines: "Retrieving cluster: succeeded"
+        if stripped.lower().startswith("retrieving "):
             continue
         if stripped.lower() == "cluster info":
             saw_cluster_info = True

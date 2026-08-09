@@ -77,11 +77,13 @@ COPY certs/cockroachlabs-lets-encrypt-chain.crt /tmp/cockroachlabs-lets-encrypt-
 # CockroachDB chain bundle contains YE2, Root YE, and ISRG Root X2; installing
 # the unsplit bundle silently skipped it and left Fargate unable to verify the
 # server.  Split it before updating the system store.
+# strace is required for Flight Recorder scout (Appendix C.1); SYS_PTRACE is
+# added on the Fargate task definition, and locally via --cap-add SYS_PTRACE.
 RUN awk '/-----BEGIN CERTIFICATE-----/{n++} \
          {print > ("/usr/local/share/ca-certificates/cockroachlabs-chain-" n ".crt")}' \
         /tmp/cockroachlabs-lets-encrypt-chain.pem \
     && rm /tmp/cockroachlabs-lets-encrypt-chain.pem \
-    && apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get update && apt-get install -y --no-install-recommends ca-certificates strace \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -98,8 +100,11 @@ COPY --from=builder /app/src /app/src
 COPY --from=frontend /ui/dist /app/src/cairn/console/static
 COPY cairn.yaml /app/cairn.yaml
 COPY db/migrations /app/db/migrations
+COPY examples /app/examples
 
-RUN useradd --create-home --shell /usr/sbin/nologin cairn
+RUN useradd --create-home --shell /usr/sbin/nologin cairn \
+    && mkdir -p /app/.cairn/out \
+    && chown -R cairn:cairn /app/.cairn /app/examples/_selftest
 USER cairn
 
 # No default work to do — worker tasks are launched via ECS RunTask with

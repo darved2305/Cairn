@@ -198,6 +198,13 @@ resource "aws_ecs_task_definition" "worker_primary" {
     image     = local.image
     essential = true
     command   = ["cairn", "--help"] # overridden per-invocation by RunTask
+    # Flight Recorder (Day 2): SYS_PTRACE only — required for strace -f on Fargate.
+    # Do not add broader capabilities; this is not a sandbox for arbitrary commands.
+    linuxParameters = {
+      capabilities = {
+        add = ["SYS_PTRACE"]
+      }
+    }
     environment = concat(local.common_env, [
       { name = "CAIRN_WORKER_REGION", value = var.region_primary },
     ])
@@ -228,6 +235,11 @@ resource "aws_ecs_task_definition" "worker_secondary" {
     image     = local.image
     essential = true
     command   = ["cairn", "--help"] # overridden per-invocation by RunTask
+    linuxParameters = {
+      capabilities = {
+        add = ["SYS_PTRACE"]
+      }
+    }
     environment = concat(local.common_env, [
       { name = "CAIRN_WORKER_REGION", value = var.region_secondary },
     ])

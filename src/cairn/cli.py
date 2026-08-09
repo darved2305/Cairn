@@ -65,13 +65,26 @@ _INFRA_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+class ChildExit(Exception):
+    """Wrapped child terminated — ``_graceful`` must re-raise as the child's code.
+
+    Cairn's own infra failures become exit 1; the traced command's status
+    must pass through unchanged so ``cairn scout`` is transparent to scripts.
+    """
+
+    def __init__(self, code: int) -> None:
+        self.code = int(code)
+        super().__init__(f"child exited with {self.code}")
+
+
 def _graceful[T](fn: Callable[..., T]) -> Callable[..., T]:
     """Outer safety net around a command body. Command-specific exceptions
     (Refusal/Escalation/ConfigError/...) are already handled inside the
     function and raise typer.Exit themselves — that passes through here
-    untouched. Anything in _INFRA_ERRORS that reaches this point instead
-    gets one clean message + a non-zero exit, and an emitted event so a
-    TUI/console watching the event stream still sees the failure."""
+    untouched. ``ChildExit`` re-raises as the child's status. Anything in
+    _INFRA_ERRORS that reaches this point instead gets one clean message + a
+    non-zero exit, and an emitted event so a TUI/console watching the event
+    stream still sees the failure."""
 
     name = fn.__name__.removesuffix("_command")
 
@@ -81,6 +94,9 @@ def _graceful[T](fn: Callable[..., T]) -> Callable[..., T]:
             return fn(*args, **kwargs)
         except typer.Exit:
             raise
+        except ChildExit as exc:
+            close_pool()
+            raise typer.Exit(code=exc.code) from None
         except _INFRA_ERRORS as exc:
             typer.echo(f"cairn {name}: {exc}", err=True)
             emit_event(
@@ -229,6 +245,139 @@ def _resolve_tui_entry() -> Path | None:
         )
         return debug
     return None
+
+
+@app.command(
+    "scout",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+)
+@_graceful
+def scout_command(
+    ctx: typer.Context,
+    output_file: Annotated[
+        Path,
+        typer.Option("--output-file", help="Declared regular output file (workspace-relative)."),
+    ] = Path(".cairn/out/scout.bin"),
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Emit machine-readable trace summary on stdout.")
+    ] = False,
+    record_candidate: Annotated[
+        bool,
+        typer.Option(
+            "--record-candidate",
+            help="Persist trace + CANDIDATE/INCOMPLETE observation in CockroachDB.",
+        ),
+    ] = False,
+    namespace_id: Annotated[
+        str, typer.Option("--namespace", help="Namespace for --record-candidate.")
+    ] = "local",
+    keep_raw: Annotated[
+        bool, typer.Option("--keep-raw-trace", help="Retain the private strace log.")
+    ] = False,
+) -> None:
+    """Trace COMMAND under the Flight Recorder collector — evidence only, never reuse.
+
+    Usage: ``cairn scout --output-file FILE -- COMMAND``
+
+    Native Windows runs without portable identity (INCOMPLETE_PLATFORM /
+    SHADOW_UNQUALIFIED). Gate A: observation alone does not authorize
+    generic verified ``cairn exec`` reuse.
+    """
+    from cairn.flight import identity as flight_identity
+    from cairn.trace.normalize import semantic_resource_set
+    from cairn.trace.scout import ARBITRARY_EXEC_COVERAGE, cleanup_scout_tmpdir, run_scout
+
+    raw_args = list(ctx.args)
+    if raw_args and raw_args[0] == "--":
+        raw_args = raw_args[1:]
+    if not raw_args:
+        typer.echo("cairn scout: COMMAND is required after --", err=True)
+        raise typer.Exit(code=2)
+
+    result = run_scout(
+        raw_args,
+        output_file=output_file,
+        namespace_id=namespace_id,
+        keep_raw_trace=keep_raw,
+    )
+    trace = result.trace
+    semantic = semantic_resource_set(trace)
+    t_digest = flight_identity.trace_digest(trace)
+
+    observation: dict[str, object] | None = None
+    if record_candidate:
+        from cairn.db.flight import persist_candidate_observation
+
+        pool = get_pool()
+        run_id = uuid.uuid4()
+        region = (
+            os.environ.get("CAIRN_WORKER_REGION") or os.environ.get("CAIRN_AWS_REGION") or "local"
+        )
+        persisted = persist_candidate_observation(
+            pool,
+            namespace_id=namespace_id,
+            spec=result.spec,
+            trace=trace,
+            run_id=run_id,
+            region=region,
+            task_arn=result.task_arn,
+        )
+        observation = {
+            "observation_id": str(persisted.observation_id),
+            "trace_digest": persisted.trace_digest,
+            "run_id": str(persisted.run_id),
+            "lifecycle_state": persisted.lifecycle_state,
+        }
+        close_pool()
+
+    payload = {
+        "coverage_state": trace.coverage_state.value,
+        "incomplete_reasons": list(trace.incomplete_reasons),
+        "trace_digest": t_digest,
+        "child_exit_code": result.child_exit_code,
+        "resource_count": len(trace.resources),
+        "semantic_resources": [
+            {
+                "kind": r.kind.value,
+                "ref": r.ref,
+                "access_mode": r.access_mode.value,
+                "exists": r.exists,
+                "version_digest": r.version_digest,
+                "resolver": r.resolver,
+            }
+            for r in semantic
+        ],
+        "arbitrary_exec_coverage": ARBITRARY_EXEC_COVERAGE.value,
+        "platform_supported": result.collected.platform_supported,
+        "redacted_trace_path": str(result.redacted_trace_path)
+        if result.redacted_trace_path
+        else None,
+        "observation": observation,
+        "task_arn": result.task_arn,
+    }
+
+    if as_json:
+        typer.echo(json.dumps(payload, sort_keys=True, indent=2))
+    else:
+        typer.echo(f"coverage   {trace.coverage_state.value}")
+        if trace.incomplete_reasons:
+            typer.echo("reasons    " + "; ".join(trace.incomplete_reasons))
+        typer.echo(f"resources  {len(trace.resources)} ({len(semantic)} semantic)")
+        typer.echo(f"trace      {t_digest}")
+        typer.echo(f"child_exit {result.child_exit_code}")
+        typer.echo(
+            f"note       arbitrary exec frozen at {ARBITRARY_EXEC_COVERAGE.value} "
+            "(observation alone never authorizes reuse)"
+        )
+        if observation:
+            typer.echo(
+                f"observation {observation['observation_id']} ({observation['lifecycle_state']})"
+            )
+
+    emit_event("scout.completed", payload)
+    if not keep_raw:
+        cleanup_scout_tmpdir(result)
+    raise ChildExit(result.child_exit_code)
 
 
 @app.command("plan")

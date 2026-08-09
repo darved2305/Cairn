@@ -144,7 +144,9 @@ class PurityPolicy:
         if self.qualification_runs < 1:
             raise ValueError("qualification_runs must be >= 1")
         if self.authorizes_reuse and self.qualification_runs < 2:
-            raise ValueError("a purity policy that authorizes reuse requires qualification_runs >= 2")
+            raise ValueError(
+                "a purity policy that authorizes reuse requires qualification_runs >= 2"
+            )
         object.__setattr__(self, "env_names", tuple(sorted(self.env_names)))
 
     @property
@@ -256,7 +258,9 @@ class TraceContent:
         sorted_resources = tuple(sorted(self.resources, key=lambda r: r.identity_tuple))
         object.__setattr__(self, "resources", sorted_resources)
         if self.coverage_state.authorizes_reuse and self.incomplete_reasons:
-            raise ValueError("a coverage state that authorizes reuse may not carry incomplete reasons")
+            raise ValueError(
+                "a coverage state that authorizes reuse may not carry incomplete reasons"
+            )
         if self.coverage_state.is_incomplete and not self.incomplete_reasons:
             raise ValueError("an INCOMPLETE_* state must state at least one reason")
 

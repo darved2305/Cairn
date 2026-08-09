@@ -780,6 +780,7 @@ def _doctor_ccloud() -> str:
     detail = report.get("detail") or report.get("fail_closed_reason")
     return str(detail)
 
+
 # A tiny standalone script, run via `sys.executable -c`, not imported into
 # this process — isolates the real boto3 STS call in its own process so a
 # native-DLL crash there (this machine's Avast/OpenSSL conflict when boto3

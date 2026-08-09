@@ -51,7 +51,5 @@ def test_migrations_converge_after_kill_between_statements() -> None:
         cur.execute("SHOW CONSTRAINTS FROM work_claims")
         texts = [" ".join(str(c) for c in row).lower() for row in cur.fetchall()]
         assert any("work_claims_success_pointer" in t for t in texts)
-        cur.execute(
-            "SELECT 1 FROM information_schema.tables WHERE table_name = 'fragment_commits'"
-        )
+        cur.execute("SELECT 1 FROM information_schema.tables WHERE table_name = 'fragment_commits'")
         assert cur.fetchone() is not None

@@ -105,12 +105,12 @@ def run_scout(
 
     cwd_rel = "."
     image_digest = image_digest or os.environ.get("CAIRN_IMAGE_DIGEST") or None
-    if (
-        image_digest is not None
-        and not image_digest.startswith("sha256:")
-        and len(image_digest) == 64
-    ):
-        image_digest = f"sha256:{image_digest}"
+    if image_digest is not None:
+        # Accept bare hex, sha256:…, or repo@sha256:… (docker RepoDigests).
+        if "@sha256:" in image_digest:
+            image_digest = "sha256:" + image_digest.rsplit("@sha256:", 1)[1]
+        elif not image_digest.startswith("sha256:") and len(image_digest) == 64:
+            image_digest = f"sha256:{image_digest}"
 
     spec = build_shadow_spec(
         argv=command,
@@ -124,7 +124,9 @@ def run_scout(
     private_tmp = trace_dir / "tmp"
     private_tmp.mkdir()
 
-    with companion_env(root) as session:
+    # Companion + strace live under trace_dir so their opens are not
+    # undeclared workspace writes (Appendix C.3 INCOMPLETE_WRITE).
+    with companion_env(root, base_dir=private_tmp) as session:
         env = dict(os.environ)
         env.update(session.env_updates)
         # Bytecode writes under the workspace would otherwise look like
@@ -144,7 +146,7 @@ def run_scout(
         config=NormalizeConfig(
             workspace=root,
             output_rel=output_rel,
-            private_temp_root=private_tmp,
+            private_temp_root=trace_dir,
             purity_contract_id=spec.purity.contract_id,
             image_pinned=spec.platform.image_digest is not None,
             linux=linux,

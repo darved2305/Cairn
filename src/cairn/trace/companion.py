@@ -114,9 +114,21 @@ class CompanionSession:
 
 
 @contextmanager
-def companion_env(workspace: Path) -> Iterator[CompanionSession]:
-    """Install a temporary sitecustomize on PYTHONPATH and yield session paths."""
-    site_dir = Path(tempfile.mkdtemp(prefix="cairn-companion-"))
+def companion_env(
+    workspace: Path,
+    *,
+    base_dir: Path | None = None,
+) -> Iterator[CompanionSession]:
+    """Install a temporary sitecustomize on PYTHONPATH and yield session paths.
+
+    When ``base_dir`` is set (scout's private temp root), the companion lives
+    there so its log opens are not treated as undeclared workspace writes.
+    """
+    if base_dir is not None:
+        site_dir = Path(base_dir) / "companion"
+        site_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        site_dir = Path(tempfile.mkdtemp(prefix="cairn-companion-"))
     log_path = site_dir / "companion.jsonl"
     log_path.write_text("", encoding="utf-8")
     (site_dir / "sitecustomize.py").write_text(_SITECUSTOMIZE.lstrip("\n"), encoding="utf-8")

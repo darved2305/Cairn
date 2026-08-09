@@ -402,11 +402,11 @@ fn every_one_of_the_nine_actions_lands_in_the_ledger_correctly() {
         assert_eq!(node.change_class.as_deref(), Some("semantic"));
 
         // Authority is never overstated: a decision with no authorized_by
-        // reads as model-proposed only.
+        // names its actual proposer and says that it was only a proposal.
         if verdict == "reused" {
             assert_eq!(entry.authority(), "probe");
         } else {
-            assert_eq!(entry.authority(), "model-proposed only");
+            assert_eq!(entry.authority(), "model (proposal only)");
         }
     }
 }

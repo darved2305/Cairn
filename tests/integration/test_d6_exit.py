@@ -70,7 +70,8 @@ def test_never_seen_mpnet_misconfig_blocked_then_remediation_lets_it_through(
             embedding=_semantic_embedding(known_summary),
             run_id=uuid.uuid4(),
             wasted_ms=1200,
-            embedding_dim=384,
+            embedding_dim=768,
+            input_dim=384,
             model_family="sentence-transformers",
             framework_version="2.5.0",
         ),
@@ -79,7 +80,7 @@ def test_never_seen_mpnet_misconfig_blocked_then_remediation_lets_it_through(
         pool,
         memory.Remediation(
             signature_id=signature_id,
-            changed_keys=[memory.ChangedKey(key="embedding_dim", from_value=384, to_value=768)],
+            changed_keys=[memory.ChangedKey(key="train.input_dim", from_value=384, to_value=768)],
             rationale="classifier.input_dim must equal the embedding model's actual output dimension",
             verified_run_id=uuid.uuid4(),
             succeeded=True,
@@ -97,7 +98,7 @@ def test_never_seen_mpnet_misconfig_blocked_then_remediation_lets_it_through(
         # embedding_dim agrees with the recorded signature (the causal
         # key) but framework_version differs, so this is a near-miss —
         # strong_semantic, not an exact re-run of the identical config.
-        structured={"embedding_dim": 384, "framework_version": "2.9.0"},
+        structured={"embedding_dim": 768, "input_dim": 512, "framework_version": "2.9.0"},
     )
 
     matches = memory.search(
@@ -112,7 +113,9 @@ def test_never_seen_mpnet_misconfig_blocked_then_remediation_lets_it_through(
     # the causal key no longer agrees, so the SAME memory entry no longer
     # blocks — "applying the remediation lets it through" ---
     fixed_candidate = PlanFeatures(
-        stage="checkpoint", error_class_hint=error_class, structured={"embedding_dim": 768}
+        stage="checkpoint",
+        error_class_hint=None,
+        structured={"embedding_dim": 768, "input_dim": 768},
     )
     verdict_after_fix = memory.tier(matches[0], fixed_candidate)
     assert verdict_after_fix.tier not in memory.BLOCKING_TIERS

@@ -47,6 +47,21 @@ def test_upstream_read_uses_uri_key(monkeypatch: pytest.MonkeyPatch) -> None:
     assert observed == [("cairn-demo", f"checkpoint/{'a' * 64}")]
 
 
+def test_transport_failure_does_not_accuse_the_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = _artifact()
+
+    def fail(_bucket: str, _key: str) -> bytes:
+        raise RuntimeError("TLS validation failed")
+
+    monkeypatch.setattr(loop.s3, "get_bytes", fail)
+
+    with pytest.raises(RuntimeError, match="TLS validation failed") as raised:
+        loop._get_upstream_bytes("cairn-demo", artifact)  # noqa: SLF001
+    assert not isinstance(raised.value, loop.UpstreamArtifactUnavailable)
+
+
 def test_claim_heartbeat_renews_until_context_exits(monkeypatch: pytest.MonkeyPatch) -> None:
     called = threading.Event()
 

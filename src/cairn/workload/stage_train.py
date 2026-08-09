@@ -28,6 +28,8 @@ from cairn.config import StageConfig
 from cairn.workload import stage_features
 from cairn.workload.determinism import SEED
 
+# These defaults are the conservative demo architecture; tracked config may
+# override them without changing the feature extractor upstream.
 INPUT_DIM = 384
 HIDDEN_DIM = 256
 NUM_LABELS = 4

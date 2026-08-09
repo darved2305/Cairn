@@ -657,7 +657,7 @@ CREATE TABLE failure_signatures (
   error_class       STRING NOT NULL,
   workload_kind     STRING NOT NULL,
   model_family      STRING, model_id STRING,
-  embedding_dim     INT, num_labels INT, dataset_rows INT8,
+  embedding_dim     INT, input_dim INT, num_labels INT, dataset_rows INT8,
   max_seq_len       INT, batch_size INT, grad_accum INT,
   precision         STRING, optimizer STRING, lr DECIMAL,
   instance_kind     STRING, vcpu DECIMAL, mem_mib INT, accelerator STRING,

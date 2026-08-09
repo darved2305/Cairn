@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+from cairn.db import memory
 from cairn.db.memory import BLOCKING_TIERS, Match, MatchTier, PlanFeatures, tier
 
 _NOW = datetime(2026, 8, 7, tzinfo=UTC)
@@ -148,3 +149,24 @@ def test_different_error_class_never_matches_beyond_weak() -> None:
     candidate = _candidate(error_class_hint="IndexError", structured={"input_dim": 384})
     result = tier(match, candidate)
     assert result.tier == MatchTier.WEAK
+
+
+def test_causal_key_extraction_rejects_legacy_mismatched_provenance() -> None:
+    structured = {"embedding_dim": 384, "input_dim": 768}
+
+    # This is the malformed shape produced before input_dim had its own
+    # column: the key was called embedding_dim but its from-value actually
+    # described the classifier input. It must never become blocking evidence.
+    legacy = [{"key": "embedding_dim", "from": 768, "to": 384}]
+    assert memory._extract_causal_keys(legacy, {"embedding_dim": 384}) is None
+
+    corrected = [{"key": "train.input_dim", "from": 768, "to": 384}]
+    assert memory._extract_causal_keys(corrected, structured) == frozenset(
+        {"input_dim", "embedding_dim"}
+    )
+
+
+def test_causal_key_extraction_rejects_wrong_from_value() -> None:
+    structured = {"embedding_dim": 384, "input_dim": 999}
+    remediation = [{"key": "train.input_dim", "from": 768, "to": 384}]
+    assert memory._extract_causal_keys(remediation, structured) is None

@@ -133,6 +133,7 @@ def test_remediation_causal_keys_flow_into_search_and_tiering(pool) -> None:
             wasted_ms=60_000,
             num_labels=4,
             embedding_dim=384,
+            input_dim=384,
             framework_version="2.5.0",
             instance_kind="fargate-2vcpu-4gib",
         ),
@@ -141,7 +142,7 @@ def test_remediation_causal_keys_flow_into_search_and_tiering(pool) -> None:
         pool,
         Remediation(
             signature_id=signature_id,
-            changed_keys=[ChangedKey(key="embedding_dim", from_value=384, to_value=768)],
+            changed_keys=[ChangedKey(key="train.input_dim", from_value=384, to_value=768)],
             rationale="mpnet is 768-d, classifier.input_dim must match",
             succeeded=True,
         ),
@@ -151,7 +152,7 @@ def test_remediation_causal_keys_flow_into_search_and_tiering(pool) -> None:
         pool, stage="checkpoint", error_class_hint=f"RuntimeError-{token}", embedding=embedding
     )
     assert len(results) == 1
-    assert results[0].causal_keys == frozenset({"embedding_dim"})
+    assert results[0].causal_keys == frozenset({"embedding_dim", "input_dim"})
 
     # A near-miss config with the SAME wrong embedding_dim -> strong_semantic, blocks.
     candidate = PlanFeatures(
@@ -160,6 +161,7 @@ def test_remediation_causal_keys_flow_into_search_and_tiering(pool) -> None:
         structured={
             "num_labels": 4,
             "embedding_dim": 384,
+            "input_dim": 384,
             "framework_version": "2.9.0",
             "instance_kind": "fargate-2vcpu-4gib",
         },
@@ -171,8 +173,8 @@ def test_remediation_causal_keys_flow_into_search_and_tiering(pool) -> None:
     # no longer agrees -> falls back to at most weak, never blocks.
     fixed_candidate = PlanFeatures(
         stage="checkpoint",
-        error_class_hint=f"RuntimeError-{token}",
-        structured={**candidate.structured, "embedding_dim": 768},
+        error_class_hint=None,
+        structured={**candidate.structured, "input_dim": 768},
     )
     verdict_after_fix = tier(results[0], fixed_candidate)
     assert verdict_after_fix.tier in (MatchTier.WEAK, MatchTier.NONE)

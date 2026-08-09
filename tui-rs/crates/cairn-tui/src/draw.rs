@@ -704,9 +704,9 @@ fn ledger_card<'a>(entry: &DecisionEntry, theme: &Theme) -> Vec<Line<'a>> {
 
     let mut meta = vec![
         Span::styled("  by ", theme.dim()),
-        // "model-proposed only" when nothing authorized it — the panel must
-        // never imply an authority the row does not carry.
-        Span::styled(entry.authority().to_string(), theme.muted()),
+        // When authorization is absent, authority() names the actual proposer
+        // and explicitly labels it as proposal-only.
+        Span::styled(entry.authority(), theme.muted()),
     ];
     if let Some(class) = &entry.change_class {
         meta.push(Span::styled(format!("  {class}"), theme.dim()));
@@ -1516,6 +1516,59 @@ mod tests {
             "a finished run left {:?} still marked running",
             app.state.pipeline.current_stage
         );
+    }
+
+    /// Render an NDJSON stream captured from a genuine backend run. This is
+    /// useful for scenarios that must execute inside the Linux workload
+    /// image (real S3/Bedrock libraries) while still proving the native TUI
+    /// reducer and panels tell the same story from the exact emitted events.
+    #[test]
+    #[ignore = "needs CAIRN_REMEDIATION_EVENTS_FILE from a real backend run"]
+    fn live_event_stream_renders_refuse_remediate_and_downstream_replan() {
+        let path = std::env::var("CAIRN_REMEDIATION_EVENTS_FILE")
+            .expect("set CAIRN_REMEDIATION_EVENTS_FILE to real captured NDJSON");
+        let raw = std::fs::read_to_string(path).expect("read real NDJSON stream");
+        let mut app = App::new(ThemeName::CairnDark);
+        for line in raw.lines() {
+            if let Some(event) = cairn_protocol::parse_event_line(line) {
+                app.state.apply_event(event);
+            }
+        }
+
+        let actions: Vec<&str> = app
+            .state
+            .ledger
+            .entries
+            .iter()
+            .map(|entry| entry.action.as_str())
+            .collect();
+        assert!(actions.contains(&"REFUSE_DOOMED"));
+        assert!(actions.contains(&"REMEDIATE_AND_REPLAN"));
+
+        let checkpoint = app.state.pipeline.node("checkpoint").unwrap();
+        assert_eq!(checkpoint.status, StageStatus::Succeeded);
+        assert_eq!(checkpoint.action.as_deref(), Some("REMEDIATE_AND_REPLAN"));
+        let refused_key = app
+            .state
+            .ledger
+            .entries
+            .iter()
+            .find(|entry| entry.action.as_str() == "REFUSE_DOOMED")
+            .map(|entry| entry.work_key.as_str())
+            .unwrap();
+        assert_ne!(checkpoint.work_key.as_deref(), Some(refused_key));
+        let eval = app.state.pipeline.node("eval").unwrap();
+        assert_eq!(eval.status, StageStatus::Succeeded);
+        assert_eq!(eval.action.as_deref(), Some("REUSE"));
+
+        let mut terminal = Terminal::new(TestBackend::new(150, 44)).unwrap();
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+        let screen = rendered(&terminal);
+        println!("{screen}");
+        assert!(screen.contains("REMEDIATE_AND_REPLAN"));
+        assert!(screen.contains("REFUSE_DOOMED"));
+        assert!(screen.contains("by rule (proposal only)"));
+        assert!(!screen.contains("by model (proposal only)"));
     }
 
     #[test]

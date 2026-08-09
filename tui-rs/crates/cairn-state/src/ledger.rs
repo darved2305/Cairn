@@ -116,9 +116,9 @@ pub struct DecisionEntry {
     pub verdict: Option<String>,
     pub change_class: Option<String>,
     pub proposed_by: Option<String>,
-    /// `None` renders as "model-proposed only" — the same honest wording
-    /// the TS panel used. A decision with no `authorized_by` was never
-    /// rule-authorized, and the panel must not imply it was.
+    /// Authorization is distinct from proposal provenance. When this is
+    /// absent, the panel may name `proposed_by`, but must make clear that it
+    /// was only a proposal and never imply an authority the row does not carry.
     pub authorized_by: Option<String>,
     pub candidate_artifact_id: Option<String>,
     pub latency_ms: Option<i64>,
@@ -153,10 +153,22 @@ impl DecisionEntry {
         self.verdict.as_deref() == Some("refused")
     }
 
-    pub fn authority(&self) -> &str {
-        match self.authorized_by.as_deref() {
-            Some(value) if !value.is_empty() => value,
-            _ => "model-proposed only",
+    pub fn authority(&self) -> String {
+        if let Some(value) = self
+            .authorized_by
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            return value.to_string();
+        }
+
+        match self
+            .proposed_by
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            Some(value) => format!("{value} (proposal only)"),
+            None => "unattributed (not authorized)".to_string(),
         }
     }
 }

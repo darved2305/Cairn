@@ -47,6 +47,7 @@ import numpy as np
 import numpy.typing as npt
 import psycopg
 import torch
+from botocore.exceptions import ClientError
 from psycopg_pool import ConnectionPool
 
 from cairn.agent.actions import Action
@@ -99,7 +100,7 @@ class Refusal(RuntimeError):
 
 
 class UpstreamArtifactUnavailable(RuntimeError):
-    """An S3 read failed for a specific artifact adopted from memory.
+    """S3 proved a specific artifact adopted from memory is absent.
 
     This explicit attribution is what makes quarantine causal. A generic
     downstream exception (for example, a missing independently-vendored raw
@@ -191,14 +192,25 @@ class StageOutcome:
     artifact: ArtifactHandle | None
     decision_id: uuid.UUID | None
     detail: str
+    authorized_by: str | None = None
+    effective_plan: PipelinePlan | None = None
+    effective_config: TrackedConfig | None = None
 
 
 def _get_upstream_bytes(bucket: str, artifact: ArtifactHandle) -> bytes:
     key = artifact.s3_uri.split("/", 3)[-1]
     try:
         return s3.get_bytes(bucket, key)
-    except Exception as exc:
+    except FileNotFoundError as exc:
         raise UpstreamArtifactUnavailable(artifact, str(exc)) from exc
+    except ClientError as exc:
+        error_code = str(exc.response.get("Error", {}).get("Code", ""))
+        if error_code in {"404", "NoSuchKey", "NotFound"}:
+            raise UpstreamArtifactUnavailable(artifact, str(exc)) from exc
+        # Authentication, authorization, TLS, throttling, and transient
+        # transport failures are worker-environment failures, not evidence
+        # that immutable artifact bytes are missing or contradictory.
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +302,7 @@ def _checkpoint_shape_mismatch(
         "framework": "pytorch",
         "framework_version": torch.__version__,
         "embedding_dim": embedding_dim,
+        "input_dim": input_dim,
         "instance_kind": _INSTANCE_KIND,
         "vcpu": _VCPU,
         "mem_mib": _MEM_MIB,
@@ -517,6 +530,7 @@ def run_stage(
 ) -> StageOutcome:
     stage_plan = plan.by_stage()[stage_name]
     work_key = stage_plan.work_key.value
+    failure_structured: dict[str, object] = {}
 
     # --- recall: negative memory (checkpoint's shape-mismatch pre-check only) ---
     if stage_name == "checkpoint":
@@ -529,6 +543,11 @@ def run_stage(
         mismatch = _checkpoint_shape_mismatch(config_reads)
         if mismatch is not None:
             traceback_head, structured = mismatch
+            # If no prior memory entry blocks and the real stage later
+            # raises, learn the same causal fields recall just derived.
+            # checkpoint reads train.input_dim directly, so its StagePlan
+            # alone does not contain features.embedding_dim.
+            failure_structured = structured
             blocking = _recall_blocking_match(
                 pool,
                 stage=stage_name,
@@ -541,6 +560,9 @@ def run_stage(
                 ),
             )
             if blocking is not None:
+                refusal_explanation = (
+                    f"negative memory match at {blocking.tier.value}: {traceback_head}"
+                )
                 if blocking.match.causal_keys:
                     remediation = memory.latest_successful_remediation(
                         pool, blocking.match.signature_id
@@ -548,6 +570,21 @@ def run_stage(
                 else:
                     remediation = None
                 if remediation is not None:
+                    record_decision(
+                        pool,
+                        ReuseDecision(
+                            work_key=work_key,
+                            stage=stage_name,
+                            action=Action.REFUSE_DOOMED.value,
+                            verdict="refused",
+                            proposed_by="rule",
+                            latency_ms=0,
+                            explanation=(
+                                f"{refusal_explanation}; refusing the doomed key before any "
+                                "claim and applying its verified remediation"
+                            ),
+                        ),
+                    )
                     fixed_config = _apply_remediation(
                         config, [(ck.key, ck.to_value) for ck in remediation.changed_keys]
                     )
@@ -584,10 +621,7 @@ def run_stage(
                         verdict="refused",
                         proposed_by="rule",
                         latency_ms=0,
-                        explanation=(
-                            f"negative memory match at {blocking.tier.value}, no verified "
-                            f"remediation on record: {traceback_head}"
-                        ),
+                        explanation=(f"{refusal_explanation}; no verified remediation on record"),
                     ),
                 )
                 raise Refusal(f"REFUSE_DOOMED work_key={work_key} decision_id={decision_id}")
@@ -621,6 +655,7 @@ def run_stage(
                 artifact=ArtifactHandle.from_row(row),
                 decision_id=decision_id,
                 detail="identity reuse",
+                authorized_by="identity",
             )
 
         result = claims.subscribe(pool, work_key)
@@ -734,7 +769,13 @@ def run_stage(
     except Exception as exc:
         claims.fail(pool, work_key, owner, claim.fence)
         _learn_from_failure(
-            pool, stage=stage_name, run_id=run_id, exc=exc, stage_plan=stage_plan, upstream=upstream
+            pool,
+            stage=stage_name,
+            run_id=run_id,
+            exc=exc,
+            stage_plan=stage_plan,
+            upstream=upstream,
+            structured_overrides=failure_structured,
         )
         raise
 
@@ -830,6 +871,7 @@ def run_stage(
         ),
         decision_id=decision_id,
         detail=detail,
+        authorized_by="probe" if kind == "reuse_probe" else None,
     )
 
 
@@ -841,14 +883,31 @@ def _replan_and_recurse(pool: ConnectionPool, **kwargs: Any) -> StageOutcome:
         run_id=str(kwargs.get("run_id")) if kwargs.get("run_id") else None,
     )
     outcome = run_stage(pool, **kwargs)
+    decision_id = record_decision(
+        pool,
+        ReuseDecision(
+            work_key=outcome.work_key,
+            stage=outcome.stage,
+            action=Action.REMEDIATE_AND_REPLAN.value,
+            verdict=outcome.verdict,
+            proposed_by="rule",
+            authorized_by=outcome.authorized_by,
+            candidate_artifact_id=(outcome.artifact.artifact_id if outcome.artifact else None),
+            latency_ms=0,
+            explanation=f"{remediation_note}; then {outcome.detail}",
+        ),
+    )
     return StageOutcome(
         stage=outcome.stage,
         work_key=outcome.work_key,
         action=Action.REMEDIATE_AND_REPLAN,
         verdict=outcome.verdict,
         artifact=outcome.artifact,
-        decision_id=outcome.decision_id,
+        decision_id=decision_id,
         detail=f"{remediation_note}; then {outcome.detail}",
+        authorized_by=outcome.authorized_by,
+        effective_plan=kwargs["plan"],
+        effective_config=kwargs["config"],
     )
 
 
@@ -1050,6 +1109,7 @@ def _learn_from_failure(
     exc: Exception,
     stage_plan: StagePlan,
     upstream: Mapping[str, StageOutcome],
+    structured_overrides: Mapping[str, object] | None = None,
 ) -> None:
     """Real learn-from-failure: record a genuine failure signature with the
     real traceback and, if an LLM is available, an unverified remediation
@@ -1069,9 +1129,18 @@ def _learn_from_failure(
     }
     for dotted, value in stage_plan.config_reads.items():
         key = dotted.split(".", 1)[1] if "." in dotted else dotted
-        if key in ("embedding_dim", "batch_size", "max_seq_length", "num_labels", "learning_rate"):
+        if key in (
+            "embedding_dim",
+            "input_dim",
+            "batch_size",
+            "max_seq_length",
+            "num_labels",
+            "learning_rate",
+        ):
             mapped = {"max_seq_length": "max_seq_len", "learning_rate": "lr"}.get(key, key)
             structured[mapped] = value
+    if structured_overrides:
+        structured.update(structured_overrides)
 
     def _int(key: str) -> int | None:
         value = structured.get(key)
@@ -1100,6 +1169,7 @@ def _learn_from_failure(
                 vcpu=_float("vcpu"),
                 mem_mib=_int("mem_mib"),
                 embedding_dim=_int("embedding_dim"),
+                input_dim=_int("input_dim"),
                 batch_size=_int("batch_size"),
                 max_seq_len=_int("max_seq_len"),
                 num_labels=_int("num_labels"),
@@ -1204,9 +1274,10 @@ def run_pipeline(
             # fallback blamed the last reused upstream for *any* exception;
             # a missing independent `datasets/.../raw.parquet` therefore
             # quarantined a healthy env artifact whose S3 object existed.
-            # Upstream reads now identify their artifact explicitly; all
-            # other failures remain learned negative memory, without a false
-            # causal claim.
+            # Upstream reads now identify their artifact explicitly and only
+            # a proved missing-object response carries this type. Transport,
+            # TLS, auth, and other worker failures remain learned negative
+            # memory without a false causal claim.
             if isinstance(exc, UpstreamArtifactUnavailable):
                 record_contradiction(
                     pool,
@@ -1233,6 +1304,12 @@ def run_pipeline(
             run_id=str(run_id),
         )
         outcomes[spec.name] = outcome
+        if outcome.effective_plan is not None and outcome.effective_config is not None:
+            # A remediation changes the causal key, not just the current
+            # stage's local execution. Every downstream stage must plan from
+            # the corrected config and corrected upstream work key.
+            plan = outcome.effective_plan
+            config = outcome.effective_config
 
     emit_event(
         "run.completed",

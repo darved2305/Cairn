@@ -46,6 +46,7 @@ from cairn.agent.actions import Action
 from cairn.agent.loop import run_stage
 from cairn.config import TrackedConfig
 from cairn.db import claims, memory
+from cairn.db.decisions import decisions_for_artifact, latest_refusal
 from cairn.db.environments import ensure_environment
 from cairn.db.graph import ArtifactInput
 from cairn.embeddings import default_provider
@@ -138,6 +139,7 @@ def test_unverified_remediation_is_advisory_only_and_never_blocks(
             run_id=uuid.uuid4(),
             wasted_ms=1000,
             embedding_dim=embedding_dim,
+            input_dim=wrong_input_dim,
             framework="pytorch",
             instance_kind="fargate-2vcpu-4gib",
             vcpu=2.0,
@@ -152,7 +154,7 @@ def test_unverified_remediation_is_advisory_only_and_never_blocks(
         memory.Remediation(
             signature_id=signature_id,
             changed_keys=[
-                memory.ChangedKey(key="embedding_dim", from_value=None, to_value=embedding_dim)
+                memory.ChangedKey(key="train.input_dim", from_value=None, to_value=embedding_dim)
             ],
             rationale="unverified LLM proposal: train.input_dim should equal embedding_dim",
             succeeded=False,
@@ -255,6 +257,7 @@ def test_checkpoint_shape_mismatch_remediation_unblocks_via_identity_reuse(
             run_id=uuid.uuid4(),
             wasted_ms=1000,
             embedding_dim=embedding_dim,
+            input_dim=wrong_input_dim,
             framework="pytorch",
             instance_kind="fargate-2vcpu-4gib",
             vcpu=2.0,
@@ -267,7 +270,7 @@ def test_checkpoint_shape_mismatch_remediation_unblocks_via_identity_reuse(
             signature_id=signature_id,
             changed_keys=[
                 memory.ChangedKey(
-                    key="embedding_dim", from_value=wrong_input_dim, to_value=embedding_dim
+                    key="train.input_dim", from_value=wrong_input_dim, to_value=embedding_dim
                 )
             ],
             rationale="train.input_dim must equal the embedding model's actual output dimension",
@@ -344,3 +347,22 @@ def test_checkpoint_shape_mismatch_remediation_unblocks_via_identity_reuse(
     assert outcome.action == Action.REMEDIATE_AND_REPLAN
     assert outcome.artifact is not None
     assert outcome.artifact.artifact_id == artifact_id
+    assert outcome.effective_config is not None
+    assert outcome.effective_config.to_dict()["train"]["input_dim"] == embedding_dim
+    assert outcome.effective_plan is not None
+    assert outcome.effective_plan.by_stage()["checkpoint"].work_key.value == fixed_work_key
+
+    refusal = latest_refusal(pool)
+    assert refusal is not None
+    assert refusal.work_key == plan.by_stage()["checkpoint"].work_key.value
+    assert refusal.action == Action.REFUSE_DOOMED.value
+    assert "before any claim" in refusal.explanation
+
+    artifact_decisions = decisions_for_artifact(pool, artifact_id)
+    assert [row.action for row in artifact_decisions[:2]] == [
+        Action.REMEDIATE_AND_REPLAN.value,
+        Action.REUSE.value,
+    ]
+    remediation_decision = artifact_decisions[0]
+    assert remediation_decision.work_key == fixed_work_key
+    assert remediation_decision.authorized_by == "identity"

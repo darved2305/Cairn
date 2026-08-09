@@ -375,3 +375,68 @@ appended below as they are obtained.
   The deployed Linux endpoint separately returned the real Claude Sonnet
   account denial; Titan search likewise returned the real Operation-not-
   allowed response.
+
+### Real judge scenarios and remediation-loop defects
+
+- A cold, real five-stage baseline under image identity `f1fca45` completed
+  in 305.722 seconds and wrote genuine CockroachDB and S3 artifacts. A real
+  comment-only edit in `stage_train.py` preserved all five work keys; the
+  next full run identity-reused all five artifacts in 29.887 seconds.
+- Changing `train.hidden_dim` from 256 to 512 produced the expected partial
+  reuse: env, dataset, and features were reused; checkpoint and eval received
+  new causal work keys and recomputed real artifacts in 86.355 seconds. The
+  deployed graph showed the same 3/2 split as the CLI.
+- The first shape-mismatch exercise found that the failure learner omitted
+  the feature dimension derived by the checkpoint preflight. It also found
+  that `REMEDIATE_AND_REPLAN` was not persisted and its corrected config/plan
+  did not flow into eval. The learner now persists both dimensions, records a
+  refusal before taking a claim, records the remediation decision, and passes
+  the corrected plan to downstream stages.
+- A subsequent real-cluster regression exposed a subtler over-block: the
+  schema had only `embedding_dim`, so a remediation whose actual changed key
+  was `train.input_dim` could make every mismatch against a 384-dimensional
+  feature model look exact. Additive migration `0009_failure_input_dim.sql`
+  now stores the rejected configured input separately. Blocking provenance is
+  accepted only when every remediation `from` value agrees with the persisted
+  failure row; the malformed historic row remains preserved but advisory.
+  `EXPLAIN` passed for the migration, both changed search queries, and the
+  changed signature insert. Focused live CockroachDB tests pass 8/8.
+- The corrected real failure is signature
+  `33495a0f-c0ed-4f63-b993-5f745d570cd0`, run
+  `5eb9eef9-5b2c-419a-ae44-edf2444179ec`, with
+  `embedding_dim=384`, `input_dim=768`, and the genuine `ValueError`
+  traceback. Verified remediation
+  `6d2fe63c-043d-4a75-bc6c-8cafbb9dd6d1` changes
+  `train.input_dim: 768 -> 384`, backed by previously successful real run
+  `f9e5f562-6a5c-4358-ba9a-07839f735af5`.
+- Re-running the still-bad tracked config completed in 32.6 seconds without
+  reacquiring the doomed key: env/dataset/features reused, checkpoint emitted
+  `REFUSE_DOOMED` then `REMEDIATE_AND_REPLAN` onto corrected work key
+  `51947166ca3a5b70add9f28e8ae8837d1dc39b9f892fcf98060d9325595af05f`,
+  and eval reused corrected work key
+  `d5c81d5f83302581816bc782b125b71d974f0d55d426a5653bb46e86841ccedd`.
+  The native TUI replayed that exact NDJSON stream through its production
+  reducer and renderer and showed the same five-stage outcome.
+
+### Defect 8 — transport failures falsely accused artifacts
+
+- A deliberately containerized scenario initially inherited a Windows-only
+  AWS CA bundle path. S3 correctly failed TLS setup, but Cairn wrapped every
+  upstream read exception as artifact evidence and quarantined a healthy
+  dataset artifact. The artifact was explicitly unquarantined with the real
+  audit reason after S3 health was reconfirmed.
+- Upstream attribution now treats only `NoSuchKey`/404 (and the local
+  equivalent) as evidence that an immutable artifact is unavailable. TLS,
+  authentication, authorization, throttling, and transport failures propagate
+  as worker-environment errors and cannot create a contradiction. Five
+  focused attribution/heartbeat tests pass, including the exact TLS-shaped
+  regression.
+
+### TUI provenance correction
+
+- Replaying the real negative-memory event stream exposed a visible false
+  attribution: a rule-proposed refusal with no `authorized_by` rendered as
+  `model-proposed only`. Ledger labels now distinguish authorization from
+  proposal provenance. The real stream renders the refusal as
+  `by rule (proposal only)` and the identity-authorized remediation as
+  `by identity`.

@@ -39,6 +39,7 @@ STRUCTURED_FIELDS = (
     "model_family",
     "model_id",
     "embedding_dim",
+    "input_dim",
     "num_labels",
     "dataset_rows",
     "max_seq_len",
@@ -145,12 +146,47 @@ def _vector_literal(values: Sequence[float]) -> str:
     return "[" + ",".join(repr(float(v)) for v in values) + "]"
 
 
+def _structured_key(config_key: str) -> str | None:
+    """Map a remediation config path to a persisted structured feature.
+
+    The legacy bare ``embedding_dim`` remediation key means the checkpoint
+    classifier input (see ``_apply_remediation``), not the feature model's
+    output dimension. Preserve that behavior while comparing it against the
+    correct new ``input_dim`` column.
+    """
+
+    if config_key == "embedding_dim":
+        return "input_dim"
+    leaf = config_key.rsplit(".", 1)[-1]
+    return {"max_seq_length": "max_seq_len", "learning_rate": "lr"}.get(leaf, leaf)
+
+
 def _extract_causal_keys(
     changed_keys: Sequence[Mapping[str, object]] | None,
+    structured: Mapping[str, object],
 ) -> frozenset[str] | None:
     if not changed_keys:
         return None
-    return frozenset(str(entry["key"]) for entry in changed_keys)
+
+    causal: set[str] = set()
+    for entry in changed_keys:
+        key = _structured_key(str(entry.get("key", "")))
+        # A remediation is blocking evidence only when its recorded `from`
+        # value agrees with the failure row. Unknown keys, missing values, or
+        # legacy malformed rows therefore remain advisory instead of causing
+        # an unsafe broad refusal.
+        if key not in STRUCTURED_FIELDS or structured.get(key) is None:
+            return None
+        if entry.get("from") != structured.get(key):
+            return None
+        causal.add(key)
+        if key == "input_dim" and structured.get("embedding_dim") is not None:
+            # A classifier shape failure is caused by the relationship
+            # between configured input and feature output. Exact matching
+            # requires both values; semantic matching may generalize across
+            # a different bad input while the same feature dimension agrees.
+            causal.add("embedding_dim")
+    return frozenset(causal) if causal else None
 
 
 def _row_to_match(row: tuple[object, ...]) -> Match:
@@ -163,6 +199,7 @@ def _row_to_match(row: tuple[object, ...]) -> Match:
         model_family,
         model_id,
         embedding_dim,
+        input_dim,
         num_labels,
         dataset_rows,
         max_seq_len,
@@ -187,6 +224,7 @@ def _row_to_match(row: tuple[object, ...]) -> Match:
         "model_family": model_family,
         "model_id": model_id,
         "embedding_dim": embedding_dim,
+        "input_dim": input_dim,
         "num_labels": num_labels,
         "dataset_rows": dataset_rows,
         "max_seq_len": max_seq_len,
@@ -214,7 +252,7 @@ def _row_to_match(row: tuple[object, ...]) -> Match:
         created_at=created_at,  # type: ignore[arg-type]
         cosine_distance=float(dist),  # type: ignore[arg-type]
         causal_keys=_extract_causal_keys(
-            cast("Sequence[Mapping[str, object]] | None", changed_keys)
+            cast("Sequence[Mapping[str, object]] | None", changed_keys), structured
         ),
     )
 
@@ -238,7 +276,7 @@ def search(
         cur.execute(
             """
             SELECT fs.signature_id, fs.stage, fs.error_class, fs.traceback_head, fs.summary_text,
-                   fs.model_family, fs.model_id, fs.embedding_dim, fs.num_labels, fs.dataset_rows,
+                   fs.model_family, fs.model_id, fs.embedding_dim, fs.input_dim, fs.num_labels, fs.dataset_rows,
                    fs.max_seq_len, fs.batch_size, fs.grad_accum, fs.precision, fs.optimizer, fs.lr,
                    fs.instance_kind, fs.vcpu, fs.mem_mib, fs.accelerator, fs.framework,
                    fs.framework_version, fs.oom_killed, fs.wasted_ms, fs.created_at,
@@ -281,7 +319,7 @@ def search_text(
         cur.execute(
             """
             SELECT fs.signature_id, fs.stage, fs.error_class, fs.traceback_head, fs.summary_text,
-                   fs.model_family, fs.model_id, fs.embedding_dim, fs.num_labels, fs.dataset_rows,
+                   fs.model_family, fs.model_id, fs.embedding_dim, fs.input_dim, fs.num_labels, fs.dataset_rows,
                    fs.max_seq_len, fs.batch_size, fs.grad_accum, fs.precision, fs.optimizer, fs.lr,
                    fs.instance_kind, fs.vcpu, fs.mem_mib, fs.accelerator, fs.framework,
                    fs.framework_version, fs.oom_killed, fs.wasted_ms, fs.created_at,
@@ -337,6 +375,7 @@ class FailureSignature:
     model_family: str | None = None
     model_id: str | None = None
     embedding_dim: int | None = None
+    input_dim: int | None = None
     num_labels: int | None = None
     dataset_rows: int | None = None
     max_seq_len: int | None = None
@@ -369,11 +408,11 @@ def record_failure_signature(pool: ConnectionPool, signature: FailureSignature) 
             """
             INSERT INTO failure_signatures
               (signature_id, stage, error_class, workload_kind, model_family, model_id,
-               embedding_dim, num_labels, dataset_rows, max_seq_len, batch_size, grad_accum,
+               embedding_dim, input_dim, num_labels, dataset_rows, max_seq_len, batch_size, grad_accum,
                precision, optimizer, lr, instance_kind, vcpu, mem_mib, accelerator,
                framework, framework_version, error_module, exit_code, oom_killed,
                traceback_head, summary_text, embedding, run_id, wasted_ms)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 signature_id,
@@ -383,6 +422,7 @@ def record_failure_signature(pool: ConnectionPool, signature: FailureSignature) 
                 signature.model_family,
                 signature.model_id,
                 signature.embedding_dim,
+                signature.input_dim,
                 signature.num_labels,
                 signature.dataset_rows,
                 signature.max_seq_len,

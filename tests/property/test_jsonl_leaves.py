@@ -88,7 +88,9 @@ def test_missing_id_field_rejected(tmp_path: Path) -> None:
 def test_bucket_assignment_is_deterministic() -> None:
     a = jsonl_map.canonical_id_bytes("row-0001")
     assert jsonl_map.bucket_of(a) == jsonl_map.bucket_of(a)
-    buckets = {jsonl_map.bucket_of(jsonl_map.canonical_id_bytes(f"row-{i:04d}")) for i in range(200)}
+    buckets = {
+        jsonl_map.bucket_of(jsonl_map.canonical_id_bytes(f"row-{i:04d}")) for i in range(200)
+    }
     # 200 distinct ids over 64 buckets should spread across more than a
     # handful of buckets — catches an accidental constant-bucket bug.
     assert len(buckets) > 16
@@ -103,7 +105,9 @@ def _leaf_keys(manifest: jsonl_map.InputManifest, g_digest: str) -> dict[int, st
 
 
 def _globals(mapper_digest: str) -> str:
-    return globals_digest(spec=_spec(adapter=_adapter()), mapper_digest=mapper_digest, id_field="id")
+    return globals_digest(
+        spec=_spec(adapter=_adapter()), mapper_digest=mapper_digest, id_field="id"
+    )
 
 
 def test_changing_one_value_touches_exactly_one_bucket(tmp_path: Path) -> None:
@@ -241,10 +245,15 @@ def test_verify_accepts_matching_bijection(tmp_path: Path) -> None:
     _write_jsonl(path, base)
     manifest = jsonl_map.validate_input(path, "id")
 
-    assembled = b"\n".join(
-        json.dumps({"id": r["id"], "embedding": [0.0]}, sort_keys=True, separators=(",", ":")).encode()
-        for r in base
-    ) + b"\n"
+    assembled = (
+        b"\n".join(
+            json.dumps(
+                {"id": r["id"], "embedding": [0.0]}, sort_keys=True, separators=(",", ":")
+            ).encode()
+            for r in base
+        )
+        + b"\n"
+    )
     jsonl_map.verify(assembled, manifest)  # must not raise
 
 
@@ -254,10 +263,15 @@ def test_verify_rejects_missing_id(tmp_path: Path) -> None:
     _write_jsonl(path, base)
     manifest = jsonl_map.validate_input(path, "id")
 
-    assembled = b"\n".join(
-        json.dumps({"id": r["id"], "embedding": [0.0]}, sort_keys=True, separators=(",", ":")).encode()
-        for r in base[:-1]
-    ) + b"\n"
+    assembled = (
+        b"\n".join(
+            json.dumps(
+                {"id": r["id"], "embedding": [0.0]}, sort_keys=True, separators=(",", ":")
+            ).encode()
+            for r in base[:-1]
+        )
+        + b"\n"
+    )
     with pytest.raises(jsonl_map.JsonlMapError):
         jsonl_map.verify(assembled, manifest)
 
@@ -269,7 +283,9 @@ def test_verify_rejects_duplicate_id(tmp_path: Path) -> None:
     manifest = jsonl_map.validate_input(path, "id")
 
     lines = [
-        json.dumps({"id": r["id"], "embedding": [0.0]}, sort_keys=True, separators=(",", ":")).encode()
+        json.dumps(
+            {"id": r["id"], "embedding": [0.0]}, sort_keys=True, separators=(",", ":")
+        ).encode()
         for r in base
     ]
     lines.append(lines[0])

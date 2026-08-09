@@ -299,9 +299,7 @@ def plan_execution(
         )
 
     work = compute_semantic_key(spec, resolved)
-    current_map = flight_db.current_derivations(
-        pool, namespace_id=spec.namespace_id, keys=[work]
-    )
+    current_map = flight_db.current_derivations(pool, namespace_id=spec.namespace_id, keys=[work])
     current = current_map.get(work)
 
     candidate = flight_db.find_candidate_observation(
@@ -422,10 +420,7 @@ def _detect_drift(
     actual: TraceContent,
 ) -> str | None:
     predicted_set = {r.identity_tuple + (r.version_digest, r.exists) for r in predicted}
-    actual_inputs = {
-        r.identity_tuple + (r.version_digest, r.exists)
-        for r in actual.inputs
-    }
+    actual_inputs = {r.identity_tuple + (r.version_digest, r.exists) for r in actual.inputs}
     if actual.coverage_state is CoverageState.INCOMPLETE_NETWORK:
         return "network activity makes result non-reusable"
     # Hidden/new resource: actual has an input the prediction lacked.
@@ -474,18 +469,14 @@ def execute(
     """Drive one ``cairn exec`` invocation end-to-end."""
     root = (workspace or Path.cwd()).resolve()
     host = socket.gethostname()
-    region = (
-        os.environ.get("CAIRN_WORKER_REGION") or os.environ.get("CAIRN_AWS_REGION") or "local"
-    )
+    region = os.environ.get("CAIRN_WORKER_REGION") or os.environ.get("CAIRN_AWS_REGION") or "local"
     owner = owner_id or f"local/{host}"
     run_id = uuid.uuid4()
     request_id = uuid.uuid4()
     out_path = (root / spec.output.path_rel).resolve()
 
     declared = (
-        declared_file_inputs(declared_input_paths, workspace=root)
-        if declared_input_paths
-        else None
+        declared_file_inputs(declared_input_paths, workspace=root) if declared_input_paths else None
     )
     allow_coalesce = spec.adapter is not None and spec.purity.contract_id == CONTRACT_JSONL_MAP
 
@@ -597,9 +588,7 @@ def execute(
                 return ExecResult(
                     action=PlanAction.SUBSCRIBE,
                     child_exit_code=0,
-                    coverage_state=CoverageState(
-                        subscribed.coverage_state or "COMPLETE_DECLARED"
-                    ),
+                    coverage_state=CoverageState(subscribed.coverage_state or "COMPLETE_DECLARED"),
                     semantic_work_key=plan.semantic_work_key,
                     observation_id=subscribed.observation_id,
                     derivation_id=subscribed.derivation_id,
@@ -751,8 +740,7 @@ def _run_and_maybe_publish(
 
     # Network / incomplete → non-reusable learning only.
     reusable = (
-        traced_spec.purity.contract_id != CONTRACT_SHADOW
-        and trace.coverage_state.authorizes_reuse
+        traced_spec.purity.contract_id != CONTRACT_SHADOW and trace.coverage_state.authorizes_reuse
     )
 
     predicted = declared_inputs
@@ -775,9 +763,7 @@ def _run_and_maybe_publish(
             trace = TraceContent(
                 coverage_state=new_state,
                 resources=trace.resources,
-                incomplete_reasons=tuple(
-                    dict.fromkeys((*trace.incomplete_reasons, drift))
-                ),
+                incomplete_reasons=tuple(dict.fromkeys((*trace.incomplete_reasons, drift))),
             )
 
     persisted = flight_db.persist_candidate_observation(
@@ -847,12 +833,17 @@ def _run_and_maybe_publish(
         and out_path.is_file()
         and bucket
         and reusable
-        and (force_learn or plan.claim is not None or plan.action in {
-            PlanAction.RUN_LOCAL,
-            PlanAction.TAKE_OVER,
-            PlanAction.RUN_ISOLATED_QUALIFICATION,
-            PlanAction.RUN_SHADOW_LEARN,
-        })
+        and (
+            force_learn
+            or plan.claim is not None
+            or plan.action
+            in {
+                PlanAction.RUN_LOCAL,
+                PlanAction.TAKE_OVER,
+                PlanAction.RUN_ISOLATED_QUALIFICATION,
+                PlanAction.RUN_SHADOW_LEARN,
+            }
+        )
         and traced_spec.purity.contract_id != CONTRACT_SHADOW
     )
     # Opaque first learn publishes candidate reachability only when we acquired

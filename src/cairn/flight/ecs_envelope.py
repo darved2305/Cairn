@@ -80,7 +80,6 @@ class JsonlMapEcsEnvelope:
         return payload
 
 
-
 def cairn_exec_command_from_envelope(env: JsonlMapEcsEnvelope) -> list[str]:
     """Build the container argv for the trusted worker (array, not shell)."""
     return [

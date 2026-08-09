@@ -249,9 +249,7 @@ def test_candidate_second_qualify_then_third_restores(pool, tmp_path: Path) -> N
     assert plan3.authorized_by == "identity"
 
 
-def test_declared_adapter_may_coalesce_but_not_reuse_candidate(
-    pool, tmp_path: Path
-) -> None:
+def test_declared_adapter_may_coalesce_but_not_reuse_candidate(pool, tmp_path: Path) -> None:
     ns = f"qual-adapt-{uuid.uuid4().hex[:8]}"
     flight_db.ensure_namespace(pool, ns, ns)
     mapper = Path("examples/embed_mapper.py")
@@ -344,9 +342,7 @@ def test_git_sha_does_not_enter_identity(tmp_path: Path) -> None:
 
 
 def test_hidden_resource_forces_run(tmp_path: Path) -> None:
-    predicted = (
-        _write_resource(tmp_path, "data/a.txt", b"a"),
-    )
+    predicted = (_write_resource(tmp_path, "data/a.txt", b"a"),)
     # Workspace gains a new file the prediction did not include — resolver
     # still matches predicted paths, but executor drift detection catches
     # extras when actual trace includes them.

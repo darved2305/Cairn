@@ -1102,9 +1102,14 @@ def publish_derivation(
                 (rule.rule_id,),
             )
             head = cur.fetchone()
-            if head is None or head[0] != rule.revision or head[1] not in (
-                "ACTIVE",
-                "TIGHTENED",
+            if (
+                head is None
+                or head[0] != rule.revision
+                or head[1]
+                not in (
+                    "ACTIVE",
+                    "TIGHTENED",
+                )
             ):
                 return PublishOutcome.STALE_AUTHORITY
 

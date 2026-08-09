@@ -452,3 +452,32 @@ appended below as they are obtained.
   own `candidate_artifact_id`. Only a stage with no decision at all falls back
   to the newest stage artifact; a decision that cites no artifact displays no
   artifact. The integration assertion checks this invariant for every stage.
+
+### Final image and deployed revision
+
+- Core image `29f2986` was built from the committed source and pushed to the
+  existing ECR repository at digest
+  `sha256:4e76d2b29e24c07c83fe19ef83ea373ee04de621b831fe03593202f40890b1a3`.
+  Its in-container doctor passed CockroachDB v26.2.5, all nine migrations,
+  `fs_sem`, and AWS account `357199110611`; its real plan exited 0.
+- Docker Desktop's first export failed after all build steps because C: had
+  reached zero free bytes. Only regenerable Rust/npm workspace caches were
+  cleaned (4.2 GB recovered); Docker/WSL was restarted and the cached build
+  exported successfully. No AWS mutation happened during the failed export.
+- Existing east and west worker families are revision 8 on `29f2986`. The
+  console-only coherence patch was layered immutably as `bdb48fb`, ECR digest
+  `sha256:c2ca39ba063a8fcf8d248f3b8bcf4c74a2a0a64d96312111fc263ba4da331b09`.
+  Existing console service revision 10 reached `COMPLETED` with desired/running
+  1/1, pending 0, failed tasks 0. No new service or infrastructure resource
+  was created.
+- The final deployed endpoint sweep passed health, all five pipeline nodes,
+  paginated decisions, decision detail with 37 real artifact inputs, 50 live
+  claim rows, Inspector status, savings, demo run/state/reset, and the SPA
+  root. Pipeline now pairs checkpoint remediation with artifact `aa095a5...`
+  and corrected eval reuse with `8115e03...`.
+- Database-derived final values observed in that sweep: 53 stages reused, 17
+  recomputed, 6 failures avoided, 2,553.402 measured seconds saved, formula
+  `2553.4s x $0.0000274/s = $0.0700`. Judge replay exposed four recorded
+  scenarios and again reported both database writes and compute launches as
+  false. Titan search and Claude Inspector each returned their expected real
+  HTTP 503 account-access degradation; neither guessed an answer.

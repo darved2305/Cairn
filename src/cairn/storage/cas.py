@@ -54,7 +54,9 @@ class BlobPublication:
         if len(self.blob_digest) != 64 or any(
             c not in "0123456789abcdef" for c in self.blob_digest
         ):
-            raise ValueError(f"blob_digest must be 64 lowercase hex chars, got {self.blob_digest!r}")
+            raise ValueError(
+                f"blob_digest must be 64 lowercase hex chars, got {self.blob_digest!r}"
+            )
         if not self.object_key.startswith("cas/sha256/"):
             raise ValueError(f"CAS object_key must be under cas/sha256/, got {self.object_key!r}")
         if not self.version_id:
@@ -119,7 +121,9 @@ def _head_version(bucket: str, key: str) -> str:
             version_id = resp.get("VersionId")
     except Exception as exc:
         if _is_unavailable(exc):
-            raise BlobUnavailable(f"head_object unavailable for s3://{bucket}/{key}: {exc}") from exc
+            raise BlobUnavailable(
+                f"head_object unavailable for s3://{bucket}/{key}: {exc}"
+            ) from exc
         raise
     if not version_id or version_id == "null":
         raise BlobIntegrityError(
@@ -288,7 +292,9 @@ def publish_blob(
         if _is_precondition_failed(exc):
             return _publication_from_existing(bucket, key, digest, data)
         if _is_unavailable(exc):
-            raise BlobUnavailable(f"publish_blob unavailable for s3://{bucket}/{key}: {exc}") from exc
+            raise BlobUnavailable(
+                f"publish_blob unavailable for s3://{bucket}/{key}: {exc}"
+            ) from exc
         raise
     return BlobPublication(
         blob_digest=digest,

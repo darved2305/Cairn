@@ -216,9 +216,7 @@ def _cli_put_if_none_match(
             temp_path.unlink(missing_ok=True)
 
 
-def _put_if_none_match(
-    bucket: str, key: str, data: bytes, *, content_type: str
-) -> None:
+def _put_if_none_match(bucket: str, key: str, data: bytes, *, content_type: str) -> None:
     """Atomic first-writer-wins PUT. No HEAD-then-PUT race."""
     checksum = _checksum_sha256_b64(data)
     if _aws_cli_path() is not None:

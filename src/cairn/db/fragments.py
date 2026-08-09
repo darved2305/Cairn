@@ -72,9 +72,7 @@ def _require_live_fence(
         raise FragmentFenceError(f"no claim row for work_key={work_key!r}")
     live_owner, live_run, live_fence, state = row
     if state not in ("CLAIMED", "RUNNING"):
-        raise FragmentFenceError(
-            f"claim work_key={work_key!r} state={state!r} is not writable"
-        )
+        raise FragmentFenceError(f"claim work_key={work_key!r} state={state!r} is not writable")
     if live_owner != owner_id or live_run != run_id or live_fence != fence:
         raise FragmentFenceError(
             f"fence mismatch for work_key={work_key!r}: "
@@ -103,9 +101,7 @@ def record_fragment(
     """
 
     def _tx(cur: psycopg.Cursor) -> FragmentCommitOutcome:
-        _require_live_fence(
-            cur, work_key, owner_id=owner_id, run_id=run_id, fence=fence
-        )
+        _require_live_fence(cur, work_key, owner_id=owner_id, run_id=run_id, fence=fence)
         cur.execute(
             """
             SELECT s3_uri, content_digest

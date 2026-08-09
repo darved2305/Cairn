@@ -128,6 +128,31 @@ def flight_executions(limit: int = 25) -> dict[str, object]:
     return {"executions": rows, "count": len(rows)}
 
 
+@app.get("/api/flight/receipt/{derivation_id}")
+def flight_receipt(derivation_id: uuid.UUID) -> dict[str, object]:
+    """Shareable read-only receipt — PLAN.md §19 Day 6. Same projection as
+    ``cairn receipt --run``, minus the S3 re-fetch (``--verify`` is a CLI-only
+    operation; a page view should not fan out to S3 on every load)."""
+    from cairn.flight.receipt import ReceiptNotFound, load_receipt
+
+    try:
+        receipt = load_receipt(get_pool(), derivation_id=derivation_id)
+    except ReceiptNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return receipt.as_dict()
+
+
+@app.get("/api/flight/leaves/{root_semantic_work_key}")
+def flight_leaf_map(root_semantic_work_key: str) -> queries.LeafMap:
+    """Day-4 8x8 leaf map — PLAN.md §11. 404s until a jsonl-map/v1 root has
+    actually published; there is no placeholder grid to fall back to."""
+
+    result = queries.leaf_map_for_root(get_pool(), root_semantic_work_key)
+    if result is None:
+        raise HTTPException(status_code=404, detail="no published root derivation for this key")
+    return result
+
+
 @app.get("/api/memory/search")
 def memory_search(
     q: str,

@@ -872,3 +872,107 @@ def list_flight_executions(pool: ConnectionPool, *, limit: int = 25) -> list[Fli
         ]
 
     return in_txn(pool, _tx, op="console.list_flight_executions")
+
+
+@dataclass(frozen=True)
+class LeafRow:
+    """One cell of the Day-4 8x8 leaf map — PLAN.md §11's leaf map panel."""
+
+    bucket: int
+    derivation_id: uuid.UUID
+    blob_digest: str
+    state: str  # PUBLISHED | QUARANTINED
+    produced_by_run: uuid.UUID
+    owner_id: str | None
+    task_arn: str | None
+    input_slice_digest: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class LeafMap:
+    root_semantic_work_key: str
+    root_derivation_id: uuid.UUID
+    merkle_root_digest: str
+    leaf_count: int
+    row_count: int | None
+    reused_leaves: int | None
+    computed_leaves: int | None
+    created_at: datetime
+    leaves: list[LeafRow]
+
+
+def leaf_map_for_root(pool: ConnectionPool, root_semantic_work_key: str) -> LeafMap | None:
+    """The measured leaf grid for the current root derivation of one
+    jsonl-map/v1 semantic key — every count/digest comes from
+    `composite_derivations`/`derivation_fragments`, never a hard-coded
+    story (PLAN.md §11's "every displayed corpus count ... comes from the
+    frozen receipt")."""
+
+    def _tx(cur: psycopg.Cursor) -> LeafMap | None:
+        cur.execute(
+            """
+            SELECT d.derivation_id, c.merkle_root_digest, c.leaf_count,
+                   c.output_metadata, d.created_at
+              FROM derivations AS d
+              JOIN composite_derivations AS c ON c.parent_derivation_id = d.derivation_id
+             WHERE d.semantic_work_key = %s AND d.state = 'PUBLISHED'
+             ORDER BY d.created_at DESC
+             LIMIT 1
+            """,
+            (root_semantic_work_key,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        derivation_id, merkle_root, leaf_count, output_metadata, created_at = row
+        meta: Mapping[str, object] = output_metadata or {}
+
+        cur.execute(
+            """
+            SELECT f.ordinal, f.child_derivation_id, f.input_slice_digest,
+                   cd.blob_digest, cd.state, cd.produced_by_run,
+                   wc.owner_id, r.task_arn, cd.created_at
+              FROM derivation_fragments AS f
+              JOIN derivations AS cd ON cd.derivation_id = f.child_derivation_id
+              LEFT JOIN work_generations AS g
+                ON g.namespace_id = cd.namespace_id
+               AND g.semantic_work_key = cd.semantic_work_key
+               AND g.generation = cd.generation
+              LEFT JOIN work_claims AS wc ON wc.work_key = g.claim_key
+              LEFT JOIN runs AS r ON r.run_id = cd.produced_by_run
+             WHERE f.parent_derivation_id = %s
+             ORDER BY f.ordinal
+            """,
+            (derivation_id,),
+        )
+        leaves = [
+            LeafRow(
+                bucket=r[0],
+                derivation_id=r[1],
+                input_slice_digest=r[2],
+                blob_digest=r[3],
+                state=r[4],
+                produced_by_run=r[5],
+                owner_id=r[6],
+                task_arn=r[7],
+                created_at=r[8],
+            )
+            for r in cur.fetchall()
+        ]
+        def _as_int(value: object) -> int | None:
+            return value if isinstance(value, int) else None
+
+        return LeafMap(
+            root_semantic_work_key=root_semantic_work_key,
+            root_derivation_id=derivation_id,
+            merkle_root_digest=merkle_root,
+            leaf_count=leaf_count,
+            row_count=_as_int(meta.get("row_count")),
+            reused_leaves=_as_int(meta.get("reused_leaves")),
+            computed_leaves=_as_int(meta.get("computed_leaves")),
+            created_at=created_at,
+            leaves=leaves,
+        )
+
+    return in_txn(pool, _tx, op="console.leaf_map_for_root")

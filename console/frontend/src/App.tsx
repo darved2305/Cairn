@@ -10,7 +10,14 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DemoRunResponse, DemoState } from "./api";
 import { api } from "./api";
-import { ClaimTheatre, CausalGraph, DecisionLedger, FlightExecPanel, PanelFrame } from "./panels";
+import {
+  ClaimTheatre,
+  CausalGraph,
+  DecisionLedger,
+  FlightExecPanel,
+  LeafMapPanel,
+  PanelFrame,
+} from "./panels";
 import { NegativeMemory, SavingsStrip } from "./memory";
 import {
   ConsoleSection,
@@ -124,6 +131,13 @@ export default function App() {
             subtitle="action, authorized_by, coverage state, derivation/blob integrity, owner, and task ARN from named-contract exec."
           >
             <FlightExecPanel />
+          </PanelFrame>
+
+          <PanelFrame
+            title="3c · Leaf Map"
+            subtitle="The 64-leaf jsonl-map/v1 grid for one root semantic_work_key — reused vs. recomputed leaves, merkle root, and per-leaf derivation/blob digests."
+          >
+            <LeafMapPanel />
           </PanelFrame>
 
           <PanelFrame

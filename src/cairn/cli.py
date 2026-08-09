@@ -553,6 +553,74 @@ def exec_command(
         )
 
     bucket = os.environ.get("CAIRN_S3_BUCKET")
+
+    if contract == CONTRACT_JSONL_MAP:
+        # Day 4: real per-bucket leaf repair, not the Day-3 whole-file
+        # shortcut. `input_file`/`mapper` are guaranteed set by the
+        # contract-specific validation above.
+        if bucket is None:
+            typer.echo("cairn exec: jsonl-map/v1 requires CAIRN_S3_BUCKET", err=True)
+            raise typer.Exit(code=2)
+        assert input_file is not None
+
+        import socket as py_socket
+
+        from cairn.flight.leaf_pipeline import run_leaf_pipeline
+
+        host = py_socket.gethostname()
+        region = (
+            os.environ.get("CAIRN_WORKER_REGION")
+            or os.environ.get("CAIRN_AWS_REGION")
+            or "local"
+        )
+        owner = f"local/{host}"
+        pool = get_pool()
+        root_outcome = run_leaf_pipeline(
+            pool,
+            spec=spec,
+            input_file=input_file,
+            id_field=id_field,
+            mapper_path=mapper,
+            output_file=output_file,
+            workspace=root,
+            bucket=bucket,
+            owner_id=owner,
+            host=host,
+            region=region,
+        )
+        close_pool()
+
+        reused = sum(1 for leaf in root_outcome.leaves if leaf.action == "RESTORE")
+        computed = sum(1 for leaf in root_outcome.leaves if leaf.action == "COMPUTED")
+        changed_buckets: list[int] = sorted(
+            leaf.bucket for leaf in root_outcome.leaves if leaf.action == "COMPUTED"
+        )
+        leaf_payload = {
+            "action": root_outcome.action,
+            "root_semantic_work_key": root_outcome.root_key,
+            "derivation_id": str(root_outcome.derivation_id) if root_outcome.derivation_id else None,
+            "blob_digest": root_outcome.blob_digest,
+            "merkle_root": root_outcome.merkle_root,
+            "leaf_count": len(root_outcome.leaves),
+            "reused_leaves": reused,
+            "computed_leaves": computed,
+            "changed_buckets": changed_buckets,
+            "contract": contract,
+            "oci_image": full_ref,
+            "output_file": str(root_outcome.output_path),
+        }
+        if as_json:
+            typer.echo(json.dumps(leaf_payload, sort_keys=True, indent=2))
+        else:
+            typer.echo(f"action     {root_outcome.action}")
+            typer.echo(f"leaves     {len(root_outcome.leaves)} total · {reused} restore · {computed} compute")
+            typer.echo(f"root       sha256:{root_outcome.blob_digest}")
+            typer.echo(f"merkle     {root_outcome.merkle_root}")
+            if changed_buckets:
+                typer.echo("changed    bucket(s) " + ", ".join(str(b) for b in changed_buckets))
+        emit_event("exec.completed", leaf_payload)
+        raise ChildExit(0)
+
     pool = get_pool()
     result = execute(
         pool,
@@ -828,6 +896,54 @@ def unquarantine_command(
         typer.echo(f"artifact_id={artifact_id!r} was not quarantined", err=True)
         raise typer.Exit(code=1)
     typer.echo(f"unquarantined artifact_id={artifact_id}")
+
+
+@app.command("receipt")
+@_graceful
+def receipt_command(
+    run: Annotated[
+        str, typer.Option("--run", help="Derivation id (root or leaf) to render a receipt for.")
+    ],
+    verify: Annotated[
+        bool,
+        typer.Option("--verify", help="Re-fetch and rehash every named blob against S3."),
+    ] = False,
+) -> None:
+    """Canonical JSON receipt for one derivation — PLAN.md §19 Day 6.
+
+    Every field is read from CockroachDB; ``--verify`` additionally
+    re-fetches each blob this receipt names from S3 and rehashes it rather
+    than trusting the stored digest.
+    """
+    from cairn.flight.receipt import ReceiptNotFound, load_receipt, verify_receipt
+
+    try:
+        derivation_id = uuid.UUID(run)
+    except ValueError:
+        typer.echo(f"cairn receipt: --run must be a UUID, got {run!r}", err=True)
+        raise typer.Exit(code=2) from None
+
+    pool = get_pool()
+    try:
+        try:
+            receipt = load_receipt(pool, derivation_id=derivation_id)
+        except ReceiptNotFound:
+            typer.echo(f"cairn receipt: no derivation with id={run}", err=True)
+            raise typer.Exit(code=1) from None
+        problems: list[str] = []
+        if verify:
+            problems = verify_receipt(receipt)
+    finally:
+        close_pool()
+
+    payload = receipt.as_dict()
+    if verify:
+        payload["verified"] = len(problems) == 0
+        payload["verify_problems"] = problems
+    typer.echo(json.dumps(payload, sort_keys=True, indent=2))
+    emit_event("receipt.completed", {"derivation_id": run, "verify": verify, "problems": problems})
+    if verify and problems:
+        raise typer.Exit(code=1)
 
 
 @app.command("init")

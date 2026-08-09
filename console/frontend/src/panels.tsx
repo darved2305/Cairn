@@ -10,9 +10,28 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
-import type { ClaimRow, DecisionDetail, DecisionSummary, FlightExecRow, StageStatus } from "./api";
-import { api, fmtBytes, fmtMs, fmtWhen, shortId } from "./api";
-import { Async, Card, EmptyState, Field, Mono, Pill, Skeleton, VerdictBadge, useAsync } from "./ui";
+import type {
+  ClaimRow,
+  DecisionDetail,
+  DecisionSummary,
+  FlightExecRow,
+  LeafMap,
+  LeafRow,
+  StageStatus,
+} from "./api";
+import { ApiError, api, fmtBytes, fmtMs, fmtWhen, shortId } from "./api";
+import {
+  Async,
+  Card,
+  EmptyState,
+  ErrorState,
+  Field,
+  Mono,
+  Pill,
+  Skeleton,
+  VerdictBadge,
+  useAsync,
+} from "./ui";
 
 const STAGES = ["env", "dataset", "features", "checkpoint", "eval"] as const;
 
@@ -531,6 +550,171 @@ export function FlightExecPanel() {
         )
       }
     </Async>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Leaf Map — Day 4's 64-leaf jsonl-map/v1 grid (PLAN.md §11)
+// ---------------------------------------------------------------------------
+
+function leafTone(leaf: LeafRow, rootCreatedAt: string): string {
+  if (leaf.state === "QUARANTINED") return "border-refused/50 bg-refused-wash";
+  // A leaf published within the same short window as its root was almost
+  // certainly computed by that publish, not restored from an earlier one —
+  // an exact per-leaf "reused this run" flag isn't in the schema yet, so
+  // this is a measured-timestamp heuristic, not an invented one.
+  const sameWindow =
+    Math.abs(new Date(leaf.created_at).getTime() - new Date(rootCreatedAt).getTime()) < 5000;
+  return sameWindow ? "border-recompute/50 bg-recompute-wash" : "border-reuse/40 bg-reuse-wash";
+}
+
+function LeafGrid({ map }: { map: LeafMap }) {
+  const [selected, setSelected] = useState<LeafRow | null>(null);
+  const byBucket = new Map(map.leaves.map((l) => [l.bucket, l]));
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-[auto_1fr]">
+      <div className="grid grid-cols-8 gap-1.5">
+        {Array.from({ length: map.leaf_count }, (_, bucket) => {
+          const leaf = byBucket.get(bucket);
+          if (!leaf) {
+            return (
+              <div
+                key={bucket}
+                className="h-8 w-8 rounded border border-dashed border-rule/60"
+                title={`bucket ${bucket}: no leaf on record`}
+              />
+            );
+          }
+          return (
+            <button
+              key={bucket}
+              onClick={() => setSelected(leaf)}
+              title={`bucket ${bucket} · ${leaf.state}`}
+              className={`h-8 w-8 rounded border text-[0.6rem] font-mono transition ${leafTone(leaf, map.created_at)} ${
+                selected?.bucket === bucket ? "ring-2 ring-accent" : ""
+              }`}
+            >
+              {bucket}
+            </button>
+          );
+        })}
+      </div>
+      <div className="min-w-0 space-y-2 text-sm">
+        <dl className="flex flex-wrap gap-x-4 gap-y-1 text-[0.72rem] text-ink-3">
+          <span>
+            leaves <Mono>{map.leaf_count}</Mono>
+          </span>
+          {map.reused_leaves != null && (
+            <span>
+              reused <Mono>{map.reused_leaves}</Mono>
+            </span>
+          )}
+          {map.computed_leaves != null && (
+            <span>
+              computed <Mono>{map.computed_leaves}</Mono>
+            </span>
+          )}
+          {map.row_count != null && (
+            <span>
+              rows <Mono>{map.row_count}</Mono>
+            </span>
+          )}
+          <span>
+            merkle root <Mono title={map.merkle_root_digest}>{shortId(map.merkle_root_digest, 12)}</Mono>
+          </span>
+        </dl>
+        {selected ? (
+          <div className="rounded-xl border border-rule bg-white p-4">
+            <p className="text-sm font-medium">
+              bucket <Mono>{selected.bucket}</Mono> · <Mono>{selected.state}</Mono>
+            </p>
+            <dl className="mt-2 space-y-1 text-[0.72rem] text-ink-3">
+              <div>
+                derivation <Mono title={selected.derivation_id}>{shortId(selected.derivation_id, 16)}</Mono>
+              </div>
+              <div>
+                blob <Mono title={selected.blob_digest}>{shortId(selected.blob_digest, 16)}</Mono>
+              </div>
+              <div>
+                input slice{" "}
+                <Mono title={selected.input_slice_digest}>{shortId(selected.input_slice_digest, 16)}</Mono>
+              </div>
+              {selected.owner_id && (
+                <div>
+                  owner <Mono title={selected.owner_id}>{shortId(selected.owner_id, 16)}</Mono>
+                </div>
+              )}
+              {selected.task_arn && (
+                <div>
+                  task <Mono title={selected.task_arn}>{shortId(selected.task_arn, 20)}</Mono>
+                </div>
+              )}
+              <div>published {fmtWhen(selected.created_at)}</div>
+            </dl>
+          </div>
+        ) : (
+          <p className="text-[0.72rem] text-ink-3">Click a bucket to see its derivation and digests.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function LeafMapPanel() {
+  const [key, setKey] = useState("");
+  const [submitted, setSubmitted] = useState("");
+  const { state } = useAsync(
+    () => (submitted ? api.flightLeafMap(submitted) : Promise.reject(new Error("no key"))),
+    [submitted],
+    submitted ? 5000 : undefined,
+  );
+
+  return (
+    <div className="space-y-4">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          setSubmitted(key.trim());
+        }}
+        className="flex flex-wrap items-end gap-3"
+      >
+        <div className="min-w-[24rem] flex-1">
+          <Field label="root semantic_work_key (from a jsonl-map/v1 exec receipt)">
+            <input
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              placeholder="64-hex root semantic_work_key"
+              className="w-full rounded-lg border border-rule bg-white px-3 py-2 font-mono text-sm"
+            />
+          </Field>
+        </div>
+        <button
+          type="submit"
+          className="rounded-lg border border-rule bg-paper-2 px-4 py-2 text-sm font-medium"
+        >
+          Load
+        </button>
+      </form>
+      {!submitted && (
+        <EmptyState
+          what="No leaf map loaded"
+          why="Paste the root_semantic_work_key from a `cairn exec --contract jsonl-map/v1 --json` receipt (the changed_buckets / merkle field) to see its 64-leaf grid."
+        />
+      )}
+      {submitted && state.status === "loading" && <Skeleton rows={3} />}
+      {submitted && state.status === "ready" && <LeafGrid map={state.data} />}
+      {submitted &&
+        state.status === "error" &&
+        (state.error instanceof ApiError && state.error.status === 404 ? (
+          <EmptyState
+            what="No published root for this key yet"
+            why="This semantic_work_key has no PUBLISHED composite derivation in composite_derivations — run cairn exec --contract jsonl-map/v1 against this cluster first."
+          />
+        ) : (
+          <ErrorState error={state.error} />
+        ))}
+    </div>
   );
 }
 

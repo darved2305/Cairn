@@ -106,6 +106,16 @@ class CurrentDerivation:
 
 
 @dataclass(frozen=True, slots=True)
+class ContentBlobRefRow:
+    blob_digest: Digest
+    bucket: str
+    object_key: str
+    version_id: str
+    checksum_sha256: str
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
 class ValidatedObservation:
     observation_id: uuid.UUID
     trace_digest: Digest
@@ -1306,9 +1316,15 @@ def current_derivations(
                AND g.generation = h.current_generation
               JOIN derivations AS d ON d.derivation_id = g.current_derivation_id
               JOIN content_blobs AS b ON b.blob_digest = d.blob_digest
-              JOIN trace_observations AS o
+              -- LEFT, not JOIN: a leaf/fragment derivation under a declared
+              -- adapter contract (jsonl-map/v1) has no trace observation at
+              -- all — its authority is the adapter contract, not a trace
+              -- (Authority.STRUCTURAL). An INNER join here made every such
+              -- derivation permanently unreachable by this selector, so a
+              -- leaf could never be found "current" and restored.
+              LEFT JOIN trace_observations AS o
                 ON o.observation_id = d.observation_id AND o.namespace_id = d.namespace_id
-              JOIN trace_contents AS t ON t.trace_digest = o.trace_digest
+              LEFT JOIN trace_contents AS t ON t.trace_digest = o.trace_digest
               LEFT JOIN reuse_rule_heads AS rh ON rh.rule_id = d.rule_id
               LEFT JOIN reuse_rule_revisions AS rr
                 ON rr.rule_id = d.rule_id AND rr.revision = d.rule_revision
@@ -1320,7 +1336,7 @@ def current_derivations(
                AND d.state = 'PUBLISHED'
                AND d.quarantined_at IS NULL
                AND b.integrity_state = 'VALID'
-               AND o.lifecycle_state = 'VALIDATED'
+               AND (d.observation_id IS NULL OR o.lifecycle_state = 'VALIDATED')
                AND (
                  d.rule_id IS NULL
                  OR (
@@ -1508,22 +1524,118 @@ def find_candidate_observation(
     return in_txn(pool, _tx, op="flight.find_candidate_observation")
 
 
+def list_fragment_commits(
+    pool: ConnectionPool,
+    *,
+    namespace_id: str,
+    semantic_work_key: Digest,
+    generation: int,
+) -> list[tuple[str, Digest, Digest]]:
+    """(microchunk_key, input_slice_digest, blob_digest) for one leaf
+    generation — used to build a resumed leaf's ``CAIRN_RESUME_MANIFEST``
+    and to verify every expected microchunk is durable before leaf publish."""
+
+    def _tx(cur: psycopg.Cursor) -> list[tuple[str, Digest, Digest]]:
+        cur.execute(
+            """
+            SELECT microchunk_key, input_slice_digest, blob_digest
+              FROM fragment_commits
+             WHERE namespace_id = %s AND semantic_work_key = %s AND generation = %s
+            """,
+            (namespace_id, semantic_work_key, generation),
+        )
+        return [(r[0], r[1], r[2]) for r in cur.fetchall()]
+
+    return in_txn(pool, _tx, op="flight.list_fragment_commits")
+
+
+def get_content_blob(pool: ConnectionPool, *, blob_digest: Digest) -> ContentBlobRefRow | None:
+    def _tx(cur: psycopg.Cursor) -> ContentBlobRefRow | None:
+        cur.execute(
+            """
+            SELECT blob_digest, bucket, object_key, version_id, checksum_sha256, size_bytes
+              FROM content_blobs WHERE blob_digest = %s AND integrity_state = 'VALID'
+            """,
+            (blob_digest,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return ContentBlobRefRow(
+            blob_digest=row[0],
+            bucket=row[1],
+            object_key=row[2],
+            version_id=row[3],
+            checksum_sha256=row[4],
+            size_bytes=row[5],
+        )
+
+    return in_txn(pool, _tx, op="flight.get_content_blob")
+
+
+def record_composite_derivation(
+    pool: ConnectionPool,
+    *,
+    parent_derivation_id: uuid.UUID,
+    adapter_id: str,
+    partitioner_digest: Digest,
+    reducer_digest: Digest,
+    verifier_digest: Digest,
+    merkle_root_digest: Digest,
+    leaf_count: int,
+    output_metadata: dict[str, object],
+) -> None:
+    """Descriptive metadata for the leaf-map/explain surface — not an
+    authority-bearing table; ``publish_derivation`` already made the root
+    reachable before this is called."""
+
+    def _tx(cur: psycopg.Cursor) -> None:
+        cur.execute(
+            """
+            INSERT INTO composite_derivations
+              (parent_derivation_id, adapter_id, partitioner_digest, reducer_digest,
+               verifier_digest, merkle_root_digest, leaf_count, output_metadata)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (parent_derivation_id) DO NOTHING
+            """,
+            (
+                parent_derivation_id,
+                adapter_id,
+                partitioner_digest,
+                reducer_digest,
+                verifier_digest,
+                merkle_root_digest,
+                leaf_count,
+                Jsonb(output_metadata),
+            ),
+        )
+
+    in_txn(pool, _tx, op="flight.record_composite_derivation")
+
+
 def lookup_observation_resources(
     pool: ConnectionPool,
     *,
     trace_digest: Digest,
-) -> list[tuple[str, str, str, bool, Digest, str]]:
-    def _tx(cur: psycopg.Cursor) -> list[tuple[str, str, str, bool, Digest, str]]:
+) -> list[tuple[str, str, str, bool, Digest, str, str]]:
+    """Returns ``(kind, ref, access_mode, exists, version_digest, resolver,
+    observation_source)``. ``observation_source`` is part of every
+    ResourceIdentity's hashed payload, so a caller that reconstructs
+    ResourceIdentity rows from here and substitutes a different source
+    (e.g. hardcoding DECLARED) silently changes semantic_work_key even when
+    every other field matches — see flight/executor.py's callers."""
+
+    def _tx(cur: psycopg.Cursor) -> list[tuple[str, str, str, bool, Digest, str, str]]:
         cur.execute(
             """
             SELECT resource_kind, resource_ref, access_mode, "exists",
-                   version_digest, resolver
+                   version_digest, resolver, observation_source
               FROM trace_resources
              WHERE trace_digest = %s
              ORDER BY resource_kind, resource_ref, access_mode
             """,
             (trace_digest,),
         )
-        return [(r[0], r[1], r[2], r[3], r[4], r[5]) for r in cur.fetchall()]
+        return [(r[0], r[1], r[2], r[3], r[4], r[5], r[6]) for r in cur.fetchall()]
 
     return in_txn(pool, _tx, op="flight.lookup_observation_resources")

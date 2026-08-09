@@ -37,6 +37,19 @@ COPY src ./src
 COPY README.md ./
 RUN uv sync --frozen --no-dev
 
+# Vendor the MiniLM weights at build time, not run time. workload/stage_
+# features.py and the jsonl-map/v1 leaf mapper both load this model; a
+# cold HF Hub download (network fetch of the weights, not just "loading
+# weights" into memory) can take well past a 45s claim lease, which a
+# real deployed reaper then correctly abandons — a leaf that never gets a
+# chance to checkpoint before its own lease expires, on every first run.
+# tests/integration/conftest.py's warm_embedding_model fixture already
+# documents this as the production contract ("the running container
+# never downloads it"); this is that contract, implemented.
+RUN /app/.venv/bin/python -c "\
+from sentence_transformers import SentenceTransformer; \
+SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2').save('/opt/models/all-MiniLM-L6-v2')"
+
 # The console's React SPA. PROJECT.md §6.1 commits to "one image, one deploy
 # path", so the built bundle is baked into this same image rather than being
 # served from a second container or an S3/CloudFront origin of its own —
@@ -92,11 +105,13 @@ RUN awk '/-----BEGIN CERTIFICATE-----/{n++} \
 # than silently running with a determinism guarantee that isn't true.
 ENV PYTHONHASHSEED=0 \
     PYTHONUNBUFFERED=1 \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/app/.venv/bin:$PATH" \
+    CAIRN_MODEL_PATH=/opt/models/all-MiniLM-L6-v2
 
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
+COPY --from=builder /opt/models /opt/models
 COPY --from=frontend /ui/dist /app/src/cairn/console/static
 COPY cairn.yaml /app/cairn.yaml
 COPY db/migrations /app/db/migrations

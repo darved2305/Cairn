@@ -138,19 +138,26 @@ def declared_coverage_for_contract(contract_id: str, observed: CoverageState) ->
     return observed
 
 
+def _adapter_module_path() -> Path:
+    import cairn.adapters.jsonl_map as _mod
+
+    return Path(_mod.__file__)
+
+
 def jsonl_map_adapter_contract(
     *,
     mapper_path: Path,
     partitions: int = 64,
 ) -> AdapterContract:
-    """Measure mapper bytes for adapter digests — never invent digests.
-
-    Day-3 whole-result path uses one adapter digest triple derived from the
-    mapper file. Leaf partitioner/reducer/verifier bodies arrive Day 4; until
-    then the same measured mapper digest stands in so identity stays tied to
-    real bytes on disk.
+    """Measure the real ``adapters/jsonl_map.py`` module bytes for the
+    partitioner/reducer/verifier digests — that module is where bucketing,
+    slicing, and reduce/verify actually live (Day 4). ``mapper_path`` (the
+    cooperative per-leaf inference executable, e.g. ``embed_mapper.py``) is
+    a *separate* identity input folded into a leaf's ``globals_digest``
+    (§18: "execution_spec + mapper + output_contract digests") — call
+    ``mapper_source_digest(mapper_path)`` for that, not this function.
     """
-    digest = _sha256_file(mapper_path)
+    digest = _sha256_file(_adapter_module_path())
     return AdapterContract(
         adapter_id=CONTRACT_JSONL_MAP,
         partitioner_digest=digest,
@@ -158,3 +165,9 @@ def jsonl_map_adapter_contract(
         verifier_digest=digest,
         partitions=partitions,
     )
+
+
+def mapper_source_digest(mapper_path: Path) -> Digest:
+    """The cooperative mapper's own code identity — edits here must
+    invalidate every leaf even though they never touch adapter bucketing."""
+    return _sha256_file(mapper_path)

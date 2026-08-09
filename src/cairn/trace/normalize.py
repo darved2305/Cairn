@@ -184,6 +184,20 @@ def normalize_trace(
         return state
 
     def add_resource(resource: ResourceIdentity) -> None:
+        # Cairn's own tracer/companion scratch space (§12: "Cairn's private
+        # temp directory") is never user-meaningful identity, and its own
+        # path embeds a fresh tempfile.mkdtemp() suffix every run — treating
+        # a read/enumerate under it as an input would make semantic_work_key
+        # differ on every invocation of the exact same command (§17: private
+        # roots are excluded by policy, not hashed as accidental inputs).
+        if (
+            private_root is not None
+            and resource.access_mode.is_input
+            and resource.kind in (ResourceKind.FILE, ResourceKind.DIRECTORY)
+            and Path(resource.ref).is_absolute()
+            and _under(Path(resource.ref), private_root)
+        ):
+            return
         key = resource.identity_tuple
         existing = resources.get(key)
         if existing is None:
@@ -194,6 +208,22 @@ def normalize_trace(
             existing.source is ObservationSource.SYSCALL
             and resource.source is ObservationSource.PYTHON
         ):
+            return
+        # A plain content-hash read (`workspace_file/v1`) and a readlink's
+        # symlink-scheme read (`symlink/v1`) can land on the identical
+        # identity_tuple when a path is reached both ways in the same trace
+        # (e.g. libc's startup `readlink("/proc/self/exe", ...)` resolving
+        # to the same absolute path a later `openat` reads directly) — a
+        # magic /proc readlink and a real content hash are not the same
+        # observation, and without this rule whichever syscall happened to
+        # be traced last silently won, making identity depend on kernel
+        # scheduling jitter between otherwise-identical runs. The content
+        # hash is what resolve_workspace_inputs re-verifies at replan time,
+        # so it must always win regardless of arrival order.
+        if existing.resolver == "workspace_file/v1" and resource.resolver == "symlink/v1":
+            return
+        if existing.resolver == "symlink/v1" and resource.resolver == "workspace_file/v1":
+            resources[key] = resource
             return
         resources[key] = resource
 
@@ -723,6 +753,27 @@ def normalize_trace(
                     source=existing.source,
                     metadata=existing.metadata + (("refined_ref", resource.ref),),
                 )
+
+    # A NEGATIVE lookup for a ref that this same trace also accessed
+    # positively (READ/EXECUTE/ENUMERATE) is TOCTOU noise, not a governing
+    # "this path's absence matters" dependency — e.g. CPython's own module
+    # resolution probes a script path with ENOENT-tolerant lookups before
+    # the real open that succeeds. Keeping both meant a file that exists in
+    # every run (including the one that recorded it) could never
+    # re-resolve on a later run, because AccessMode.NEGATIVE unconditionally
+    # forces a fresh run when `path.exists()` — permanently blocking restore
+    # for any command whose declared negative path is, in fact, present.
+    positive_refs = {
+        (r.kind, r.ref)
+        for r in resources.values()
+        if r.access_mode in (AccessMode.READ, AccessMode.EXECUTE, AccessMode.ENUMERATE)
+    }
+    for key in [
+        k
+        for k, r in resources.items()
+        if r.access_mode is AccessMode.NEGATIVE and (r.kind, r.ref) in positive_refs
+    ]:
+        del resources[key]
 
     coverage, coverage_reasons = decide_coverage(
         base_reasons=tuple(dict.fromkeys(reasons)),

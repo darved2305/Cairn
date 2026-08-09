@@ -113,7 +113,13 @@ def resolve_workspace_inputs(
         if resource.kind is ResourceKind.FILE:
             path = workspace / resource.ref
             if resource.access_mode is AccessMode.NEGATIVE:
-                if path.exists():
+                # A NEGATIVE FILE resource claims "no regular file here" —
+                # Path.exists() is also true for a directory of the same
+                # name, which would otherwise force a fresh run forever for
+                # any output directory that (correctly) keeps existing
+                # between invocations. is_file() matches what was actually
+                # observed absent.
+                if path.is_file():
                     return None
                 resolved.append(resource)
                 continue
@@ -130,7 +136,16 @@ def resolve_workspace_inputs(
                     exists=True,
                     version_digest=digest,
                     resolver=resource.resolver,
-                    source=ObservationSource.DECLARED,
+                    # Preserve the ORIGINAL source rather than overwriting it
+                    # with DECLARED: `source` is part of identity_payload()'s
+                    # hashed projection, so re-tagging every re-verified file
+                    # made semantic_work_key permanently diverge from the
+                    # syscall-observed key that originally published under
+                    # it — no steady-state restore could ever match. Source
+                    # is provenance (how we learned this fact), not part of
+                    # what the fact is; re-confirming a syscall-observed
+                    # input keeps it syscall-observed.
+                    source=resource.source,
                 )
             )
         else:
@@ -214,9 +229,13 @@ def plan_execution(
                     exists=exists,
                     version_digest=digest,
                     resolver=resolver,
-                    source=ObservationSource.DECLARED,
+                    # The stored source, not a hardcoded DECLARED: source is
+                    # part of identity_payload()'s hashed projection, so
+                    # substituting it here would make this reconstruction's
+                    # semantic_work_key diverge from the trace it came from.
+                    source=ObservationSource(source),
                 )
-                for kind, ref, mode, exists, digest, resolver in rows
+                for kind, ref, mode, exists, digest, resolver, source in rows
                 if AccessMode(mode).is_input
             )
             snap = resolve_workspace_inputs(prior_inputs, workspace=workspace)
@@ -246,9 +265,9 @@ def plan_execution(
                     exists=exists,
                     version_digest=digest,
                     resolver=resolver,
-                    source=ObservationSource.DECLARED,
+                    source=ObservationSource(source),
                 )
-                for kind, ref, mode, exists, digest, resolver in rows
+                for kind, ref, mode, exists, digest, resolver, source in rows
                 if AccessMode(mode).is_input
             )
             snap = resolve_workspace_inputs(cand_inputs, workspace=workspace)

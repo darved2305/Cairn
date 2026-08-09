@@ -121,6 +121,30 @@ export interface FlightExecRow {
   created_at: string;
 }
 
+export interface LeafRow {
+  bucket: number;
+  derivation_id: string;
+  blob_digest: string;
+  state: string;
+  produced_by_run: string;
+  owner_id: string | null;
+  task_arn: string | null;
+  input_slice_digest: string;
+  created_at: string;
+}
+
+export interface LeafMap {
+  root_semantic_work_key: string;
+  root_derivation_id: string;
+  merkle_root_digest: string;
+  leaf_count: number;
+  row_count: number | null;
+  reused_leaves: number | null;
+  computed_leaves: number | null;
+  created_at: string;
+  leaves: LeafRow[];
+}
+
 export interface RemediationView {
   changed_keys: Array<Record<string, unknown>>;
   rationale: string;
@@ -288,6 +312,8 @@ export const api = {
     request<{ executions: FlightExecRow[]; count: number }>(
       `/api/flight/executions?limit=${limit}`,
     ),
+  flightLeafMap: (rootSemanticWorkKey: string) =>
+    request<LeafMap>(`/api/flight/leaves/${encodeURIComponent(rootSemanticWorkKey)}`),
   savings: () => request<Savings>("/api/savings"),
   memorySearch: (q: string, limit = 8) =>
     request<MemorySearchResponse>(

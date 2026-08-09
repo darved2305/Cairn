@@ -327,6 +327,56 @@ def test_semantic_resource_set_drops_absolute(tmp_path: Path) -> None:
     assert all(not r.ref.startswith("/") for r in sem)
 
 
+def test_private_temp_root_reads_excluded_from_inputs(tmp_path: Path) -> None:
+    """Regression: two runs of the identical command must produce the exact
+    same input resource set even though Cairn's own tracer/companion scratch
+    directory (tempfile.mkdtemp(prefix="cairn-scout-")) gets a fresh random
+    name every run. Before this fix, a read/enumerate of a file under that
+    private root leaked into `trace.inputs` with the random path baked into
+    `ref`, so semantic_work_key differed on every single invocation of the
+    exact same command and steady-state RESTORE could never be reached."""
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    real_input = workspace / "in.txt"
+    real_input.write_text("hello\n", encoding="utf-8")
+
+    def _run_with_private_root(root_name: str) -> tuple[object, str]:
+        private_root = tmp_path / root_name
+        companion = private_root / "tmp" / "companion"
+        companion.mkdir(parents=True)
+        sitecustomize = companion / "sitecustomize.py"
+        sitecustomize.write_text("# companion\n", encoding="utf-8")
+        abs_input = real_input.resolve().as_posix()
+        abs_companion_dir = companion.resolve().as_posix()
+        abs_site = sitecustomize.resolve().as_posix()
+        text = f"""\
+1000  openat(AT_FDCWD, "{abs_input}", O_RDONLY|O_CLOEXEC) = 3<{abs_input}>
+1000  openat(AT_FDCWD, "{abs_companion_dir}", O_RDONLY|O_DIRECTORY|O_CLOEXEC) = 4<{abs_companion_dir}>
+1000  getdents64(4<{abs_companion_dir}>, /* entries */, 2048) = 32
+1000  openat(AT_FDCWD, "{abs_site}", O_RDONLY|O_CLOEXEC) = 5<{abs_site}>
+1000  +++ exited with 0 +++
+"""
+        cfg = NormalizeConfig(
+            workspace=workspace,
+            output_rel="out/result.bin",
+            private_temp_root=private_root,
+            purity_contract_id="deterministic-file/v1",
+            image_pinned=True,
+            linux=True,
+        )
+        return normalize_trace(_collected(text), config=cfg), private_root.resolve().as_posix()
+
+    trace_a, root_a = _run_with_private_root("cairn-scout-aaaaaaaa")
+    trace_b, root_b = _run_with_private_root("cairn-scout-bbbbbbbb")
+
+    assert not any(r.ref.startswith(root_a) for r in trace_a.resources)  # type: ignore[attr-defined]
+    assert not any(r.ref.startswith(root_b) for r in trace_b.resources)  # type: ignore[attr-defined]
+    inputs_a = {r.identity_tuple for r in trace_a.inputs}  # type: ignore[attr-defined]
+    inputs_b = {r.identity_tuple for r in trace_b.inputs}  # type: ignore[attr-defined]
+    assert inputs_a == inputs_b
+    assert any(r.ref == "in.txt" for r in trace_a.inputs)  # type: ignore[attr-defined]
+
+
 @pytest.mark.skipif(not hasattr(os, "symlink"), reason="no symlink support")
 def test_symlink_helper_available(tmp_path: Path) -> None:
     # Windows may require admin for symlinks; skip gracefully.

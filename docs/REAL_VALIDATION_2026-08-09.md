@@ -481,3 +481,33 @@ appended below as they are obtained.
   scenarios and again reported both database writes and compute launches as
   false. Titan search and Claude Inspector each returned their expected real
   HTTP 503 account-access degradation; neither guessed an answer.
+
+### Interactive restart regression and real Windows run
+
+- A fresh native TUI initially opened with every stage `unknown` because it
+  waited for a command instead of hydrating the session. Startup now invokes
+  the same real `cairn plan --output json` path as the `p` key; it does not
+  launch compute automatically.
+- Driving `R` exposed a Windows-native OpenSSL collision after the dataset
+  claim (`OPENSSL_Uplink ... no OPENSSL_Applink`). Real S3 operations now use
+  the installed AWS CLI as an isolated TLS process on Windows. Linux/ECS and
+  local MinIO retain the boto3 path. A single process then opened the real
+  CockroachDB cluster and fetched the 3,279,707-byte vendored dataset from
+  `s3://cairn-demo-357199110611/datasets/20news-4cat-v1/raw.parquet`, SHA-256
+  `790c5cb1132d65ab5e47e552b356def12ae6d2dc790bda51981c1a4289780dbe`.
+- The local `.env` had no bucket override, so the CLI's development default
+  pointed at nonexistent `cairn-dev`. It now selects the existing deployed
+  bucket. The only stale product artifact URI was repaired by regenerating
+  the exact 2,178-byte env payload, verifying its digest
+  `db9d4695a9bfea61751b164a2a26ea3219d9e38e40ccca7d92590b30f4508551`,
+  uploading that exact object, then changing only its URI.
+- Real TUI run `ecec92b1-fe14-4ceb-8053-8db03c465eae` took over the abandoned
+  dataset claim at fence 5 and completed dataset (3,117,457 bytes), features
+  (6,428,490 bytes), checkpoint (400,669 bytes), and eval (90 bytes) in the
+  existing bucket. Heartbeats remained continuous through the 191,924 ms
+  feature extraction and 131,764 ms checkpoint training.
+- Warm TUI run `d867108d-8ebf-418b-84ee-a855bc8943ad` identity-reused all five
+  stages and emitted `run.completed`. `HeadObject` then verified every URI
+  displayed by the local console; database and S3 sizes matched exactly for
+  all five artifacts. The observed totals were 61 reused stages, 88 decisions,
+  and 2,915.008 measured seconds saved.

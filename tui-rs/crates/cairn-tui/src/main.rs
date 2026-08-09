@@ -90,6 +90,12 @@ fn install_panic_hook() {
 
 fn event_loop(terminal: &mut Terminal<Backend>, theme_name: ThemeName) -> io::Result<()> {
     let mut app = App::new(theme_name);
+    // A blank session looks broken even when the real database is healthy.
+    // Hydrate the five-stage view with the same real `cairn plan --output
+    // json` command bound to `p`; this is read/decision work only and never
+    // starts expensive compute. Operators can still press R explicitly when
+    // they want to launch the bounded workload.
+    app.dispatch("plan", "");
     let mut dirty = true;
 
     while !app.should_quit() {

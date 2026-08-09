@@ -839,6 +839,7 @@ def run_stage(
                 proposed_by="rule",
                 latency_ms=duration_ms,
                 explanation=f"resumed from {len(list_fragments(pool, work_key))} recorded fragment(s)",
+                candidate_artifact_id=artifact_id,
             ),
         )
         action, verdict, detail = Action.RESUME, "resumed", "resumed from fragments"
@@ -853,6 +854,7 @@ def run_stage(
                 proposed_by="rule",
                 latency_ms=duration_ms,
                 explanation="no reuse candidate available or reuse gate failed; real compute",
+                candidate_artifact_id=artifact_id,
             ),
         )
         action, verdict, detail = Action.RECOMPUTE, "recompute", "recomputed"

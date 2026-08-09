@@ -18,12 +18,13 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
+import subprocess
+import sys
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
-
-import boto3
-from botocore.config import Config
-from botocore.exceptions import ClientError
 
 _CLIENT: Any = None
 
@@ -35,6 +36,14 @@ def get_client() -> Any:
     one client per process, not per call site."""
     global _CLIENT
     if _CLIENT is None:
+        # Keep boto3 lazy.  On Windows, psycopg-binary and botocore can load
+        # incompatible native OpenSSL DLLs into the same interpreter.  This
+        # host fails hard (OPENSSL_Uplink / no OPENSSL_Applink) rather than
+        # raising a Python exception, so merely importing boto3 eagerly is
+        # enough to make the real workload fragile.
+        import boto3
+        from botocore.config import Config
+
         kwargs: dict[str, Any] = {
             "config": Config(retries={"max_attempts": 5, "mode": "standard"}),
         }
@@ -48,6 +57,105 @@ def get_client() -> Any:
     return _CLIENT
 
 
+def _aws_cli_path() -> str | None:
+    """Use AWS CLI as an isolated S3 transport on affected Windows hosts.
+
+    The CLI is a separate process with its own TLS runtime, so it cannot
+    collide with psycopg's OpenSSL DLLs. Local MinIO remains on boto3 because
+    tests need the configured endpoint and do not open a real CockroachDB TLS
+    connection in the same process.
+    """
+    if sys.platform != "win32" or os.environ.get("CAIRN_S3_ENDPOINT_URL"):
+        return None
+    return shutil.which("aws")
+
+
+def _run_aws_cli(args: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+    executable = _aws_cli_path()
+    if executable is None:
+        raise RuntimeError("AWS CLI isolation requested but aws is not available on PATH")
+    completed = subprocess.run(
+        [executable, *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    return completed
+
+
+def _cli_error(operation: str, completed: subprocess.CompletedProcess[str]) -> RuntimeError:
+    detail = completed.stderr.strip() or completed.stdout.strip() or "no diagnostic output"
+    return RuntimeError(
+        f"AWS CLI S3 {operation} failed (exit {completed.returncode}): {detail[:500]}"
+    )
+
+
+def _cli_exists(bucket: str, key: str) -> bool:
+    completed = _run_aws_cli(
+        ["s3api", "head-object", "--bucket", bucket, "--key", key, "--output", "json"]
+    )
+    if completed.returncode == 0:
+        return True
+    detail = f"{completed.stderr}\n{completed.stdout}"
+    if any(code in detail for code in _NOT_FOUND_CODES):
+        return False
+    raise _cli_error("head-object", completed)
+
+
+def _cli_put(bucket: str, key: str, data: bytes, content_type: str | None = None) -> None:
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="cairn-s3-put-", suffix=".bin", delete=False) as f:
+            f.write(data)
+            temp_path = Path(f.name)
+        args = [
+            "s3api",
+            "put-object",
+            "--bucket",
+            bucket,
+            "--key",
+            key,
+            "--body",
+            str(temp_path),
+            "--output",
+            "json",
+        ]
+        if content_type is not None:
+            args.extend(["--content-type", content_type])
+        completed = _run_aws_cli(args)
+        if completed.returncode != 0:
+            raise _cli_error("put-object", completed)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
+def _cli_get(bucket: str, key: str) -> bytes:
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="cairn-s3-get-", suffix=".bin", delete=False) as f:
+            temp_path = Path(f.name)
+        completed = _run_aws_cli(
+            [
+                "s3api",
+                "get-object",
+                "--bucket",
+                bucket,
+                "--key",
+                key,
+                str(temp_path),
+                "--output",
+                "json",
+            ]
+        )
+        if completed.returncode != 0:
+            raise _cli_error("get-object", completed)
+        return temp_path.read_bytes()
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+
+
 def close_client() -> None:
     """Forget the process-wide client. Tests call this between cases."""
     global _CLIENT
@@ -59,11 +167,14 @@ def content_address(data: bytes) -> str:
 
 
 def _exists(bucket: str, key: str) -> bool:
+    if _aws_cli_path() is not None:
+        return _cli_exists(bucket, key)
     try:
         get_client().head_object(Bucket=bucket, Key=key)
         return True
-    except ClientError as e:
-        if e.response.get("Error", {}).get("Code") in _NOT_FOUND_CODES:
+    except Exception as exc:
+        response = getattr(exc, "response", {})
+        if response.get("Error", {}).get("Code") in _NOT_FOUND_CODES:
             return False
         raise
 
@@ -88,11 +199,16 @@ def put_content_addressed(
     if _exists(bucket, key):
         return PutResult(digest, key, f"s3://{bucket}/{key}", already_existed=True)
 
-    get_client().put_object(Bucket=bucket, Key=key, Body=data, ContentType=content_type)
+    if _aws_cli_path() is not None:
+        _cli_put(bucket, key, data, content_type)
+    else:
+        get_client().put_object(Bucket=bucket, Key=key, Body=data, ContentType=content_type)
     return PutResult(digest, key, f"s3://{bucket}/{key}", already_existed=False)
 
 
 def get_bytes(bucket: str, key: str) -> bytes:
+    if _aws_cli_path() is not None:
+        return _cli_get(bucket, key)
     body: bytes = get_client().get_object(Bucket=bucket, Key=key)["Body"].read()
     return body
 
@@ -103,7 +219,10 @@ def put_bytes(
     """Fixed-key write for vendored reference data (dataset/model
     snapshots) addressed by a stable name, not by content — always
     overwrites. Callers that need idempotency want put_content_addressed."""
-    get_client().put_object(Bucket=bucket, Key=key, Body=data, ContentType=content_type)
+    if _aws_cli_path() is not None:
+        _cli_put(bucket, key, data, content_type)
+    else:
+        get_client().put_object(Bucket=bucket, Key=key, Body=data, ContentType=content_type)
     return f"s3://{bucket}/{key}"
 
 
@@ -117,7 +236,10 @@ def put_fragment(bucket: str, work_key: str, fragment_index: int, data: bytes) -
     digest (PROJECT.md §4.5)."""
     key = fragment_key(work_key, fragment_index)
     digest = content_address(data)
-    get_client().put_object(Bucket=bucket, Key=key, Body=data)
+    if _aws_cli_path() is not None:
+        _cli_put(bucket, key, data)
+    else:
+        get_client().put_object(Bucket=bucket, Key=key, Body=data)
     return f"s3://{bucket}/{key}", digest
 
 

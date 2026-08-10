@@ -62,9 +62,12 @@ resource "aws_iam_role" "worker_task" {
 }
 
 locals {
-  # Every prefix put_content_addressed/put_bytes/fragment_key actually use
-  # (workload/stage_*.py, storage/s3.py, scripts/vendor_dataset.py) — not a
-  # bucket-wide grant.
+  # Every prefix put_content_addressed/put_bytes/fragment_key/cas.publish_blob
+  # actually use (workload/stage_*.py, storage/s3.py, storage/cas.py,
+  # scripts/vendor_dataset.py) — not a bucket-wide grant.
+  # cas/sha256/* is required for Flight Recorder leaf/root publication
+  # (PLAN.md §12/§18); omitting it fails the first PutObject on Gate C
+  # after the mapper loads.
   s3_object_prefixes = [
     "env/*",
     "dataset/*",
@@ -74,6 +77,7 @@ locals {
     "fragments/*",
     "datasets/*",
     "models/*",
+    "cas/sha256/*",
   ]
 
   bedrock_model_arns = [
@@ -104,7 +108,7 @@ locals {
 data "aws_iam_policy_document" "worker_task" {
   statement {
     sid     = "ArtifactObjectAccess"
-    actions = ["s3:GetObject", "s3:PutObject", "s3:HeadObject"]
+    actions = ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:HeadObject"]
     resources = [
       for prefix in local.s3_object_prefixes : "${aws_s3_bucket.artifacts.arn}/${prefix}"
     ]

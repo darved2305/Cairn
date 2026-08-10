@@ -48,7 +48,8 @@ RUN uv sync --frozen --no-dev
 # never downloads it"); this is that contract, implemented.
 RUN /app/.venv/bin/python -c "\
 from sentence_transformers import SentenceTransformer; \
-SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2').save('/opt/models/all-MiniLM-L6-v2')"
+SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2').save('/opt/models/all-MiniLM-L6-v2')" \
+    && chmod -R a+rX /opt/models
 
 # The console's React SPA. PROJECT.md §6.1 commits to "one image, one deploy
 # path", so the built bundle is baked into this same image rather than being
@@ -116,10 +117,19 @@ COPY --from=frontend /ui/dist /app/src/cairn/console/static
 COPY cairn.yaml /app/cairn.yaml
 COPY db/migrations /app/db/migrations
 COPY examples /app/examples
+# Gate scripts (gate_c.sh / gate_d.sh / clean reference) must ship in the
+# digest-pinned worker image so ECS RunTask can execute the same proofs the
+# laptop runs under SYS_PTRACE. They are not part of the runtime import graph,
+# but they are part of the reproducible gate surface.
+COPY scripts /app/scripts
 
-RUN useradd --create-home --shell /usr/sbin/nologin cairn \
+# SentenceTransformer.save() writes model.safetensors as mode 600 under root.
+# The runtime USER is cairn; without a+rX the mapper fails at leaf 0 with a
+# misleading FileNotFoundError from safetensors (real cause: EACCES).
+RUN chmod -R a+rX /opt/models \
+    && useradd --create-home --shell /usr/sbin/nologin cairn \
     && mkdir -p /app/.cairn/out \
-    && chown -R cairn:cairn /app/.cairn /app/examples/_selftest
+    && chown -R cairn:cairn /app/.cairn /app/examples/_selftest /app/scripts
 USER cairn
 
 # No default work to do — worker tasks are launched via ECS RunTask with

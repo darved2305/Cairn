@@ -23,9 +23,17 @@ CORPUS="$OUT_DIR/corpus.jsonl"
 OUTPUT="$OUT_DIR/features.jsonl"
 CLEAN="$OUT_DIR/clean.jsonl"
 
+# Production image has cairn/python on PATH but not uv. Developer hosts use
+# `uv run` so the locked env is the one under test. Prefer uv when present.
+if command -v uv >/dev/null 2>&1; then
+  RUN=(uv run)
+else
+  RUN=()
+fi
+
 run_exec() {
   local label="$1"
-  uv run cairn exec \
+  "${RUN[@]}" cairn exec \
     --contract jsonl-map/v1 \
     --namespace "$NS" \
     --input-file "$CORPUS" \
@@ -42,7 +50,7 @@ check_against_clean() {
   local run_digest
   run_digest=$(python -c "import json;print(json.load(open('$run_json'))['blob_digest'])")
 
-  uv run python scripts/gate_c_clean_reference.py \
+  "${RUN[@]}" python scripts/gate_c_clean_reference.py \
     --input-file "$CORPUS" --id-field id --output-file "$CLEAN" \
     | tee "$OUT_DIR/${label}.clean.json"
   local clean_digest
@@ -56,7 +64,7 @@ check_against_clean() {
 }
 
 echo "== Gate C: baseline corpus ($COUNT rows), full compute (all 64 leaves) =="
-uv run python scripts/cairnbench_generate.py --count "$COUNT" --output "$CORPUS"
+"${RUN[@]}" python scripts/cairnbench_generate.py --count "$COUNT" --output "$CORPUS"
 run_exec baseline
 BASE_COMPUTED=$(python -c "import json;print(json.load(open('$OUT_DIR/baseline.json'))['computed_leaves'])")
 BASE_REUSED=$(python -c "import json;print(json.load(open('$OUT_DIR/baseline.json'))['reused_leaves'])")

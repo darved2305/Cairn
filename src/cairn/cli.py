@@ -973,17 +973,69 @@ def init_command(
 @app.command("explain")
 @_graceful
 def explain_command(
-    artifact_id: Annotated[str, typer.Argument(help="Artifact to explain.")],
+    artifact_id: Annotated[
+        str | None,
+        typer.Argument(
+            help="Five-stage artifact id (PROJECT.md §7.1). Omit when using "
+            "--run / --work / --artifact for the Flight leaf path."
+        ),
+    ] = None,
+    run: Annotated[
+        str | None,
+        typer.Option("--run", help="Flight derivation id (root or leaf) for leaf-path explain."),
+    ] = None,
+    work: Annotated[
+        str | None,
+        typer.Option(
+            "--work",
+            help="Semantic work key — explains the current published composite root.",
+        ),
+    ] = None,
+    artifact: Annotated[
+        str | None,
+        typer.Option(
+            "--artifact",
+            help="Flight root derivation id for leaf-path explain (Day 6). "
+            "Does not replace the positional five-stage artifact mode.",
+        ),
+    ] = None,
     output: Annotated[str, typer.Option("--output", help="table or json")] = "table",
 ) -> None:
-    """Full provenance and decision chain for one artifact — PROJECT.md §7.1:
-    the artifact row, its input edges, direct downstream artifacts, every
-    decision that cites it, and its contradiction history. Exits 1 if the
-    artifact_id is unknown."""
+    """Provenance for one artifact OR the Flight leaf path for a root.
+
+    Positional ``ARTIFACT_ID`` keeps the five-stage graph explain
+    (PROJECT.md §7.1). ``--run`` / ``--work`` / ``--artifact`` add the
+    Day-6 jsonl-map leaf path (bucket → slice → action → owner/fence →
+    root verifier) from persisted derivation rows — they do not replace
+    the five-stage mode.
+    """
 
     if output not in {"table", "json"}:
         raise typer.BadParameter("must be 'table' or 'json'", param_hint="--output")
 
+    flight_modes = [m for m in (run, work, artifact) if m is not None]
+    if flight_modes and artifact_id is not None:
+        typer.echo(
+            "cairn explain: pass either a positional five-stage artifact id "
+            "or one of --run/--work/--artifact, not both",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    if len(flight_modes) > 1:
+        typer.echo("cairn explain: use only one of --run, --work, --artifact", err=True)
+        raise typer.Exit(code=2)
+    if not flight_modes and artifact_id is None:
+        typer.echo(
+            "cairn explain: need a positional artifact id or --run/--work/--artifact",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    if flight_modes:
+        _explain_flight_leaf_path(run=run, work=work, artifact=artifact, output=output)
+        return
+
+    assert artifact_id is not None
     pool = get_pool()
     try:
         details = describe_artifact(pool, artifact_id)
@@ -1011,6 +1063,52 @@ def explain_command(
         )
     else:
         _print_explain(details, downstream, decisions, contradictions)
+
+
+def _explain_flight_leaf_path(
+    *,
+    run: str | None,
+    work: str | None,
+    artifact: str | None,
+    output: str,
+) -> None:
+    from cairn.flight.explain import (
+        ExplainNotFound,
+        explain_by_derivation,
+        explain_by_work_key,
+        format_leaf_path_table,
+    )
+
+    pool = get_pool()
+    try:
+        try:
+            if work is not None:
+                explanation = explain_by_work_key(pool, semantic_work_key=work)
+            else:
+                raw = run if run is not None else artifact
+                assert raw is not None
+                try:
+                    derivation_id = uuid.UUID(raw)
+                except ValueError:
+                    typer.echo(
+                        f"cairn explain: --run/--artifact must be a UUID, got {raw!r}",
+                        err=True,
+                    )
+                    raise typer.Exit(code=2) from None
+                explanation = explain_by_derivation(pool, derivation_id=derivation_id)
+        except ExplainNotFound as exc:
+            emit_event("explain.not_found", {"flight": str(exc)})
+            typer.echo(f"cairn explain: {exc}", err=True)
+            raise typer.Exit(code=1) from None
+    finally:
+        close_pool()
+
+    payload = explanation.as_dict()
+    emit_event("explain.completed", payload)
+    if output == "json":
+        typer.echo(json.dumps(payload, sort_keys=True, indent=2))
+    else:
+        typer.echo(format_leaf_path_table(explanation))
 
 
 @memory_app.command("search")

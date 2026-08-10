@@ -1,0 +1,78 @@
+name: 'Cairn'
+description: >
+  Run one expensive command under the same digest-pinned OCI image as
+  ECS/local (PLAN.md §16). argv_json is a JSON array — never a shell
+  string. Fork PRs get no namespace credentials and never publish.
+inputs:
+  contract:
+    description: Named contract (jsonl-map/v1 or deterministic-file/v1).
+    required: true
+    default: 'jsonl-map/v1'
+  argv_json:
+    description: JSON array of mapper/command argv (e.g. ["python","/workspace/examples/embed_mapper.py"]).
+    required: true
+  input_file:
+    description: Input JSONL path relative to the workspace.
+    required: true
+  id_field:
+    description: Stable id field name for jsonl-map/v1.
+    required: false
+    default: 'id'
+  partitions:
+    description: Leaf partition count.
+    required: false
+    default: '64'
+  output_file:
+    description: Declared output file path.
+    required: true
+  oci_image:
+    description: Full immutable OCI ref REPO@sha256:HEX — must match ECS/local.
+    required: true
+  namespace:
+    description: Requested Cairn namespace (must be authorized via OIDC→namespace_principals).
+    required: false
+    default: 'ci'
+  receipt_base_url:
+    description: Optional console base URL for receipt links in the job summary.
+    required: false
+    default: ''
+outputs:
+  decision:
+    description: Planner decision / leaf summary label.
+    value: ${{ steps.run.outputs.decision }}
+  artifact_digest:
+    description: Assembled root blob digest when recorded.
+    value: ${{ steps.run.outputs.artifact_digest }}
+  saved_ms:
+    description: Measured saved wall time when reuse occurred; empty if not measured.
+    value: ${{ steps.run.outputs.saved_ms }}
+  executed_ms:
+    description: Measured executed wall time; empty if not measured.
+    value: ${{ steps.run.outputs.executed_ms }}
+  receipt_url:
+    description: Shareable receipt URL when a derivation was recorded.
+    value: ${{ steps.run.outputs.receipt_url }}
+runs:
+  using: composite
+  steps:
+    - name: Cairn exec (digest-pinned)
+      id: run
+      shell: bash
+      env:
+        CAIRN_CONTRACT: ${{ inputs.contract }}
+        CAIRN_ARGV_JSON: ${{ inputs.argv_json }}
+        CAIRN_INPUT_FILE: ${{ inputs.input_file }}
+        CAIRN_ID_FIELD: ${{ inputs.id_field }}
+        CAIRN_PARTITIONS: ${{ inputs.partitions }}
+        CAIRN_OUTPUT_FILE: ${{ inputs.output_file }}
+        CAIRN_OCI_IMAGE: ${{ inputs.oci_image }}
+        CAIRN_NAMESPACE: ${{ inputs.namespace }}
+        CAIRN_RECEIPT_BASE_URL: ${{ inputs.receipt_base_url }}
+        CAIRN_DATABASE_URL: ${{ env.CAIRN_DATABASE_URL }}
+        CAIRN_S3_BUCKET: ${{ env.CAIRN_S3_BUCKET }}
+        CAIRN_NAMESPACE_TOKEN: ${{ env.CAIRN_NAMESPACE_TOKEN }}
+        GITHUB_EVENT_NAME: ${{ github.event_name }}
+        GITHUB_EVENT_PATH: ${{ github.event_path }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_HEAD_REF: ${{ github.head_ref }}
+      run: bash "${{ github.action_path }}/run.sh"

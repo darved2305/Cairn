@@ -1,0 +1,37 @@
+# Example caller for the in-repo composite Action (PLAN.md §16).
+# Pin oci_image to the same @sha256 digest ECS/local use. argv_json is a
+# JSON array — never a shell string. Fork PRs get no publish credentials.
+#
+# This workflow is documentation/example only until OIDC→namespace_principals
+# token exchange is wired and a real digest is frozen. Until then the demo
+# fallback is two ECS callers (PLAN.md Day 5/6), not this Action.
+name: cairn-action-example
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  features:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cairn jsonl-map
+        id: cairn
+        uses: ./.github/actions/cairn
+        with:
+          contract: jsonl-map/v1
+          argv_json: '["python","/workspace/examples/embed_mapper.py"]'
+          input_file: data/cairnbench.jsonl
+          id_field: id
+          partitions: '64'
+          output_file: artifacts/features.jsonl
+          # Replace with the frozen ECS/local digest before claiming shared identity.
+          oci_image: 357199110611.dkr.ecr.us-east-1.amazonaws.com/cairn@sha256:REPLACE_WITH_REAL_DIGEST
+          namespace: ci
+        env:
+          # Prefer a short-lived namespace token from OIDC exchange — never a
+          # long-lived global CAS role in Actions secrets for untrusted PRs.
+          CAIRN_DATABASE_URL: ${{ secrets.CAIRN_DATABASE_URL }}
+          CAIRN_S3_BUCKET: ${{ secrets.CAIRN_S3_BUCKET }}
+          CAIRN_NAMESPACE_TOKEN: ${{ secrets.CAIRN_NAMESPACE_TOKEN }}

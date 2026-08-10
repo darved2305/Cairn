@@ -369,7 +369,9 @@ def latest_routing_decision(
     return in_txn(pool, _tx, op="flight.latest_ecs_routing_decision")
 
 
-def topology_report_fields(topo: ClusterTopology, *, ccloud_version: str | None = None) -> dict[str, object]:
+def topology_report_fields(
+    topo: ClusterTopology, *, ccloud_version: str | None = None
+) -> dict[str, object]:
     """Doctor / receipt projection including optional CLI version."""
     payload = topology_to_jsonable(topo)
     if ccloud_version is not None:

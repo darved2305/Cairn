@@ -191,9 +191,7 @@ def test_contradiction_tightening_refuses_former_shortcut(
     assert result.required_authority == "probe"
     assert result.new_generation == 2
 
-    after = flight_db.current_derivations(
-        pool, namespace_id=namespace_id, keys=[semantic_work_key]
-    )
+    after = flight_db.current_derivations(pool, namespace_id=namespace_id, keys=[semantic_work_key])
     assert semantic_work_key not in after
 
     head = flight_db.current_rule_authority(pool, rule_id=rule_id)
@@ -205,9 +203,7 @@ def test_contradiction_tightening_refuses_former_shortcut(
     from cairn.flight import executor as executor_mod
     from cairn.flight.executor import _tightened_rule_refuse_reason
 
-    refuse = _tightened_rule_refuse_reason(
-        pool, namespace_id=namespace_id, work=semantic_work_key
-    )
+    refuse = _tightened_rule_refuse_reason(pool, namespace_id=namespace_id, work=semantic_work_key)
     assert refuse is not None
     assert "similarity" not in refuse.lower()
     assert any(token in refuse for token in ("probe", "tightened", "contradiction", "quarantined"))

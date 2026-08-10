@@ -1399,9 +1399,7 @@ def _doctor_ccloud_report() -> dict[str, object]:
         os.environ.get("CAIRN_WORKER_REGION") or os.environ.get("CAIRN_AWS_REGION") or ""
     ).strip() or None
     try:
-        decision = decide_ecs_region(
-            topo, ccloud_version=ccloud_version, preferred=preferred
-        )
+        decision = decide_ecs_region(topo, ccloud_version=ccloud_version, preferred=preferred)
         try:
             pool = get_pool()
             persist_routing_decision(pool, decision)

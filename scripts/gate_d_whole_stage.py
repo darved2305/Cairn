@@ -196,7 +196,14 @@ def main() -> int:
     ns = f"gate-d-ws-{int(time.time())}"
     corpus = OUT / "corpus.jsonl"
     subprocess.check_call(
-        [sys.executable, "scripts/cairnbench_generate.py", "--count", str(ROW_COUNT), "--output", str(corpus)]
+        [
+            sys.executable,
+            "scripts/cairnbench_generate.py",
+            "--count",
+            str(ROW_COUNT),
+            "--output",
+            str(corpus),
+        ]
     )
     corpus_key = f"datasets/gate-d/{ns}/corpus.jsonl"
     session = _session()
@@ -276,8 +283,13 @@ def main() -> int:
         "replacement_exit": repl_exit,
         "ok": True,
     }
-    (OUT / "RESULT.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print("Gate D WHOLE-STAGE PASSED (StopTask + lease + higher fence + replacement exit 0)", flush=True)
+    (OUT / "RESULT.json").write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(
+        "Gate D WHOLE-STAGE PASSED (StopTask + lease + higher fence + replacement exit 0)",
+        flush=True,
+    )
     print(json.dumps(result, sort_keys=True), flush=True)
     return 0
 

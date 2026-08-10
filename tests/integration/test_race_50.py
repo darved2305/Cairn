@@ -150,6 +150,10 @@ def test_at_most_one_committed_derivation_after_the_race(race_pool: ConnectionPo
 
     owner = next(r for r in results if r.role is flight_db.ClaimRole.OWNER)
     assert owner.fence is not None
+    # publish_derivation re-checks {owner_id, run_id, fence, state} against the
+    # live claim row; a fresh uuid here is a guaranteed REJECTED_FENCE even when
+    # the race itself elected a single owner correctly.
+    assert owner.owner_run_id is not None
 
     publication = publish_blob(bucket, f"race50-payload-{ns}".encode())
     outcome = flight_db.publish_derivation(
@@ -162,7 +166,7 @@ def test_at_most_one_committed_derivation_after_the_race(race_pool: ConnectionPo
         blob=publication,
         observation_id=None,
         authority=flight_db.Authority.STRUCTURAL,
-        run_id=uuid.uuid4(),
+        run_id=owner.owner_run_id,
         owner_id=owner.owner_id or "",
         fence=owner.fence,
         stage_label="race50",

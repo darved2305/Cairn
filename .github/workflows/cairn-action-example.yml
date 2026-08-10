@@ -2,9 +2,12 @@
 # Pin oci_image to the same @sha256 digest ECS/local use. argv_json is a
 # JSON array — never a shell string. Fork PRs get no publish credentials.
 #
-# This workflow is documentation/example only until OIDC→namespace_principals
-# token exchange is wired and a real digest is frozen. Until then the demo
-# fallback is two ECS callers (PLAN.md Day 5/6), not this Action.
+# DAY-6 CUT (2026-08-10): OIDC→namespace_principals short-lived token
+# exchange is NOT wired (schema table exists in 0010; no exchange service
+# in src/). Do not put this Action in the judged video as shared-claim
+# evidence. Demo shared-claim path = two ECS callers on the same pinned
+# digest (Gate D whole-stage / scripts/gate_d_whole_stage.py pattern).
+# This workflow remains documentation/example only.
 name: cairn-action-example
 on:
   workflow_dispatch:

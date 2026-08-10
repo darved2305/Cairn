@@ -41,7 +41,9 @@ def test_argv_json_must_be_string_array(raw: str, ok: bool) -> None:
 
 def test_run_sh_rejects_non_digest_image(tmp_path: Path) -> None:
     if os.name == "nt":
-        pytest.skip("run.sh exercised under Linux/CI; Windows path/bash bridging is not the contract")
+        pytest.skip(
+            "run.sh exercised under Linux/CI; Windows path/bash bridging is not the contract"
+        )
     env = {
         **os.environ,
         "CAIRN_CONTRACT": "jsonl-map/v1",

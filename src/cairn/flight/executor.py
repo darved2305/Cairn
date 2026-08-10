@@ -195,6 +195,59 @@ def compute_semantic_key(
     )
 
 
+def _tightened_rule_refuse_reason(
+    pool: ConnectionPool,
+    *,
+    namespace_id: str,
+    work: Digest,
+) -> str | None:
+    """If the newest derivation for this key was quarantined by rule tighten,
+    return an explainable refuse reason. Never attributes authority to similarity.
+    """
+
+    def _tx(cur: object) -> str | None:
+        import psycopg
+
+        assert isinstance(cur, psycopg.Cursor)
+        cur.execute(
+            """
+            SELECT d.rule_id, d.rule_revision, d.state, d.quarantined_at,
+                   rr.required_authority, rr.state AS rule_state, rh.current_revision
+              FROM derivations AS d
+              LEFT JOIN reuse_rule_heads AS rh ON rh.rule_id = d.rule_id
+              LEFT JOIN reuse_rule_revisions AS rr
+                ON rr.rule_id = rh.rule_id AND rr.revision = rh.current_revision
+             WHERE d.namespace_id = %s AND d.semantic_work_key = %s
+             ORDER BY d.created_at DESC
+             LIMIT 1
+            """,
+            (namespace_id, work),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        rule_id, rule_rev, state, quarantined_at, req_auth, rule_state, head_rev = row
+        if quarantined_at is None and state != "QUARANTINED":
+            return None
+        if rule_id is None:
+            return "derivation quarantined; refusing reuse"
+        if head_rev is not None and rule_rev is not None and int(head_rev) != int(rule_rev):
+            return (
+                f"contradiction tightened rule {rule_id} to revision {head_rev} "
+                f"(required_authority={req_auth}); former identity shortcut refused"
+            )
+        if rule_state in {"DISABLED", "TIGHTENED"} and req_auth in {"probe", "recompute"}:
+            return (
+                f"reuse rule {rule_id} requires {req_auth} after contradiction; "
+                "former identity shortcut refused"
+            )
+        return "derivation quarantined after contradiction; refusing reuse"
+
+    from cairn.db.txn import in_txn
+
+    return in_txn(pool, _tx, op="flight.tightened_rule_refuse_reason")
+
+
 def plan_execution(
     pool: ConnectionPool,
     *,
@@ -318,6 +371,34 @@ def plan_execution(
     # Derivation published under CANDIDATE is not returned by current_derivations
     # (selector requires VALIDATED). Detect via generation head separately.
     if current is not None:
+        # Rule head may demand stronger proof than identity; never restore on
+        # a DISABLED/recompute rule even if a row somehow slipped through.
+        if current.rule_id is not None:
+            head = flight_db.current_rule_authority(pool, rule_id=current.rule_id)
+            if head is None or head[1] == "DISABLED" or head[2] == "recompute":
+                return ExecPlan(
+                    action=PlanAction.REFUSE_REUSE,
+                    semantic_work_key=work,
+                    compatibility_key=c_key,
+                    generation=current.generation,
+                    current=current,
+                    reason=(
+                        "reuse rule requires recompute after contradiction; "
+                        "identity shortcut refused"
+                    ),
+                )
+            if head[2] == "probe" and current.rule_revision != head[0]:
+                return ExecPlan(
+                    action=PlanAction.REFUSE_REUSE,
+                    semantic_work_key=work,
+                    compatibility_key=c_key,
+                    generation=current.generation,
+                    current=current,
+                    reason=(
+                        "reuse rule tightened to require probe evidence; "
+                        "former identity shortcut refused"
+                    ),
+                )
         return ExecPlan(
             action=PlanAction.RESTORE,
             semantic_work_key=work,
@@ -326,6 +407,18 @@ def plan_execution(
             current=current,
             authorized_by="identity",
             reason="validated current derivation",
+        )
+
+    # If a contradiction advanced the rule head, surface that as the refuse
+    # reason rather than a silent miss — explain must never imply similarity
+    # authorized anything.
+    refuse_reason = _tightened_rule_refuse_reason(pool, namespace_id=spec.namespace_id, work=work)
+    if refuse_reason is not None and not allow_coalesce:
+        return ExecPlan(
+            action=PlanAction.REFUSE_REUSE,
+            semantic_work_key=work,
+            compatibility_key=c_key,
+            reason=refuse_reason,
         )
 
     if not allow_coalesce and not priors:
@@ -469,10 +562,32 @@ def execute(
     """Drive one ``cairn exec`` invocation end-to-end."""
     root = (workspace or Path.cwd()).resolve()
     host = socket.gethostname()
-    region = os.environ.get("CAIRN_WORKER_REGION") or os.environ.get("CAIRN_AWS_REGION") or "local"
+    preferred = (
+        os.environ.get("CAIRN_WORKER_REGION") or os.environ.get("CAIRN_AWS_REGION") or ""
+    ).strip() or None
     owner = owner_id or f"local/{host}"
     run_id = uuid.uuid4()
     request_id = uuid.uuid4()
+    # Local/dev stays "local" unless the operator opts into ccloud-authorized
+    # ECS routing (remote=ecs, or CAIRN_REQUIRE_CCLOUD_ROUTING=1). Unknown
+    # topology fails closed — never invent a region from env alone.
+    require_routing = remote == "ecs" or os.environ.get("CAIRN_REQUIRE_CCLOUD_ROUTING") == "1"
+    routing_decision = None
+    if require_routing:
+        from cairn.flight.ecs_routing import EcsRoutingError, observe_decide_and_persist
+
+        try:
+            routing_decision = observe_decide_and_persist(
+                pool,
+                preferred=preferred,
+                namespace_id=spec.namespace_id,
+                request_id=request_id,
+            )
+            region = routing_decision.selected_ecs_region
+        except EcsRoutingError:
+            raise
+    else:
+        region = preferred or "local"
     out_path = (root / spec.output.path_rel).resolve()
 
     declared = (
@@ -508,15 +623,21 @@ def execute(
         declared_inputs=declared,
         allow_coalesce=allow_coalesce,
     )
+    plan_event: dict[str, object] = {
+        "action": plan.action.value,
+        "reason": plan.reason,
+        "semantic_work_key": plan.semantic_work_key,
+        "authorized_by": plan.authorized_by,
+        "remote": remote,
+        "region": region,
+    }
+    if routing_decision is not None:
+        plan_event["ecs_routing_decision_id"] = str(routing_decision.decision_id)
+        plan_event["ecs_routing_raw_output_digest"] = routing_decision.raw_output_digest
+        plan_event["cluster_regions"] = list(routing_decision.cluster_regions)
     emit_event(
         "flight.plan",
-        {
-            "action": plan.action.value,
-            "reason": plan.reason,
-            "semantic_work_key": plan.semantic_work_key,
-            "authorized_by": plan.authorized_by,
-            "remote": remote,
-        },
+        plan_event,
         run_id=str(run_id),
     )
 

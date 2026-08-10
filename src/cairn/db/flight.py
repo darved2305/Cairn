@@ -1644,3 +1644,286 @@ def lookup_observation_resources(
         return [(r[0], r[1], r[2], r[3], r[4], r[5], r[6]) for r in cur.fetchall()]
 
     return in_txn(pool, _tx, op="flight.lookup_observation_resources")
+
+
+_ALLOWED_RULE_AUTHORITIES = frozenset({"identity", "structural", "probe", "recompute"})
+
+
+def ensure_reuse_rule(
+    pool: ConnectionPool,
+    *,
+    rule_id: str,
+    required_authority: str = "identity",
+    reason: str = "initial flight reuse rule",
+) -> RuleRevisionRef:
+    """Create revision 1 ACTIVE if missing; return the current head otherwise."""
+    if required_authority not in _ALLOWED_RULE_AUTHORITIES:
+        raise ValueError(f"required_authority must be one of {sorted(_ALLOWED_RULE_AUTHORITIES)}")
+
+    def _tx(cur: psycopg.Cursor) -> RuleRevisionRef:
+        cur.execute(
+            "SELECT current_revision FROM reuse_rule_heads WHERE rule_id = %s FOR UPDATE",
+            (rule_id,),
+        )
+        head = cur.fetchone()
+        if head is not None:
+            return RuleRevisionRef(rule_id=rule_id, revision=int(head[0]))
+        cur.execute(
+            """
+            INSERT INTO reuse_rule_revisions
+              (rule_id, revision, state, required_authority, contradiction_id, reason)
+            VALUES (%s, 1, 'ACTIVE', %s, NULL, %s)
+            """,
+            (rule_id, required_authority, reason),
+        )
+        cur.execute(
+            """
+            INSERT INTO reuse_rule_heads (rule_id, current_revision)
+            VALUES (%s, 1)
+            """,
+            (rule_id,),
+        )
+        return RuleRevisionRef(rule_id=rule_id, revision=1)
+
+    return in_txn(pool, _tx, op="flight.ensure_reuse_rule")
+
+
+@dataclass(frozen=True, slots=True)
+class RuleTightenResult:
+    contradiction_id: uuid.UUID
+    rule: RuleRevisionRef
+    prior_revision: int
+    required_authority: str
+    new_generation: int | None
+
+
+def contradict_and_tighten(
+    pool: ConnectionPool,
+    *,
+    rule_id: str,
+    derivation_id: uuid.UUID,
+    namespace_id: str,
+    semantic_work_key: Digest,
+    contradicting_run: uuid.UUID,
+    evidence: str,
+    new_required_authority: str = "probe",
+) -> RuleTightenResult:
+    """Quarantine derivation, advance rule head, rollover generation.
+
+    Narrow Day-7 loop: a failed probe/contradiction disables the formerly
+    valid identity shortcut by requiring a stricter authority on the next
+    plan. Similarity never authorizes; the rule head does.
+    """
+    if new_required_authority not in _ALLOWED_RULE_AUTHORITIES:
+        raise ValueError(
+            f"new_required_authority must be one of {sorted(_ALLOWED_RULE_AUTHORITIES)}"
+        )
+    if not evidence.strip():
+        raise ValueError("evidence must be non-empty")
+
+    def _tx(cur: psycopg.Cursor) -> RuleTightenResult:
+        cur.execute(
+            """
+            SELECT rule_id, rule_revision, state
+              FROM derivations
+             WHERE derivation_id = %s AND namespace_id = %s
+             FOR UPDATE
+            """,
+            (derivation_id, namespace_id),
+        )
+        der = cur.fetchone()
+        if der is None:
+            raise LookupError(f"derivation {derivation_id} not found")
+        der_rule_id, der_revision, der_state = der
+        if der_rule_id != rule_id:
+            raise ValueError(
+                f"derivation rule_id {der_rule_id!r} does not match tighten rule {rule_id!r}"
+            )
+
+        contradiction_id = uuid.uuid4()
+        # contradictions.artifact_id is STRING NOT NULL and not an FK — flight
+        # uses the derivation id as the quarantine subject key.
+        cur.execute(
+            """
+            INSERT INTO contradictions
+              (contradiction_id, artifact_id, contradicting_run, evidence, quarantined)
+            VALUES (%s, %s, %s, %s, true)
+            """,
+            (contradiction_id, str(derivation_id), contradicting_run, evidence),
+        )
+
+        if der_state == "PUBLISHED":
+            cur.execute(
+                """
+                UPDATE derivations
+                   SET state = 'QUARANTINED', quarantined_at = now()
+                 WHERE derivation_id = %s AND state = 'PUBLISHED'
+                """,
+                (derivation_id,),
+            )
+
+        cur.execute(
+            """
+            SELECT current_revision FROM reuse_rule_heads
+             WHERE rule_id = %s FOR UPDATE
+            """,
+            (rule_id,),
+        )
+        head = cur.fetchone()
+        if head is None:
+            raise LookupError(f"reuse rule {rule_id!r} has no head")
+        prior = int(head[0])
+        if der_revision is not None and int(der_revision) != prior:
+            # Still tighten from the live head; the derivation is already stale.
+            pass
+
+        cur.execute(
+            """
+            UPDATE reuse_rule_revisions
+               SET state = 'SUPERSEDED'
+             WHERE rule_id = %s AND revision = %s AND state IN ('ACTIVE', 'TIGHTENED')
+            """,
+            (rule_id, prior),
+        )
+        new_rev = prior + 1
+        new_state = "DISABLED" if new_required_authority == "recompute" else "TIGHTENED"
+        cur.execute(
+            """
+            INSERT INTO reuse_rule_revisions
+              (rule_id, revision, state, required_authority, contradiction_id, reason)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (rule_id, new_rev, new_state, new_required_authority, contradiction_id, evidence),
+        )
+        cur.execute(
+            """
+            UPDATE reuse_rule_heads
+               SET current_revision = %s, updated_at = now()
+             WHERE rule_id = %s
+            """,
+            (new_rev, rule_id),
+        )
+
+        # Generation rollover so the next plan cannot restore the quarantined
+        # derivation via a SUCCEEDED claim pointer.
+        cur.execute(
+            """
+            SELECT current_generation FROM work_heads
+             WHERE namespace_id = %s AND semantic_work_key = %s
+             FOR UPDATE
+            """,
+            (namespace_id, semantic_work_key),
+        )
+        head_row = cur.fetchone()
+        new_generation: int | None = None
+        if head_row is not None:
+            old_gen = int(head_row[0])
+            cur.execute(
+                """
+                SELECT claim_key, current_derivation_id FROM work_generations
+                 WHERE namespace_id = %s AND semantic_work_key = %s AND generation = %s
+                 FOR UPDATE
+                """,
+                (namespace_id, semantic_work_key, old_gen),
+            )
+            gen_row = cur.fetchone()
+            if gen_row is not None:
+                claim_key, _cur_der = gen_row
+                cur.execute(
+                    """
+                    UPDATE work_generations
+                       SET lifecycle_state = 'INVALIDATED',
+                           terminal_reason = %s,
+                           updated_at = now()
+                     WHERE namespace_id = %s AND semantic_work_key = %s AND generation = %s
+                    """,
+                    (evidence, namespace_id, semantic_work_key, old_gen),
+                )
+                cur.execute(
+                    """
+                    UPDATE work_claims
+                       SET state = 'INVALIDATED', fence = fence + 1, updated_at = now()
+                     WHERE work_key = %s
+                    """,
+                    (claim_key,),
+                )
+                new_generation = old_gen + 1
+                new_claim = flight_identity.claim_key(
+                    namespace_id, semantic_work_key, new_generation
+                )
+                cur.execute(
+                    """
+                    INSERT INTO work_claims
+                      (work_key, stage, state, owner_id, owner_host, owner_region,
+                       fence, lease_expires_at, run_id)
+                    VALUES (%s,'exec','FAILED','invalidated','invalidated','invalidated',
+                            1, now(), %s)
+                    ON CONFLICT (work_key) DO NOTHING
+                    """,
+                    (new_claim, uuid.uuid4()),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO work_generations
+                      (namespace_id, semantic_work_key, generation, claim_key,
+                       lifecycle_state, terminal_reason)
+                    VALUES (%s,%s,%s,%s,'PENDING',NULL)
+                    """,
+                    (namespace_id, semantic_work_key, new_generation, new_claim),
+                )
+                cur.execute(
+                    """
+                    UPDATE work_heads
+                       SET current_generation = %s, updated_at = now()
+                     WHERE namespace_id = %s AND semantic_work_key = %s
+                    """,
+                    (new_generation, namespace_id, semantic_work_key),
+                )
+
+        return RuleTightenResult(
+            contradiction_id=contradiction_id,
+            rule=RuleRevisionRef(rule_id=rule_id, revision=new_rev),
+            prior_revision=prior,
+            required_authority=new_required_authority,
+            new_generation=new_generation,
+        )
+
+    result = in_txn(pool, _tx, op="flight.contradict_and_tighten")
+    emit_event(
+        "flight.rule_tightened",
+        {
+            "rule_id": rule_id,
+            "prior_revision": result.prior_revision,
+            "new_revision": result.rule.revision,
+            "required_authority": result.required_authority,
+            "contradiction_id": str(result.contradiction_id),
+            "derivation_id": str(derivation_id),
+            "new_generation": result.new_generation,
+        },
+        run_id=str(contradicting_run),
+    )
+    return result
+
+
+def current_rule_authority(
+    pool: ConnectionPool, *, rule_id: str
+) -> tuple[int, str, str] | None:
+    """Return (revision, state, required_authority) for the live rule head."""
+
+    def _tx(cur: psycopg.Cursor) -> tuple[int, str, str] | None:
+        cur.execute(
+            """
+            SELECT rh.current_revision, rr.state, rr.required_authority
+              FROM reuse_rule_heads AS rh
+              JOIN reuse_rule_revisions AS rr
+                ON rr.rule_id = rh.rule_id AND rr.revision = rh.current_revision
+             WHERE rh.rule_id = %s
+            """,
+            (rule_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return (int(row[0]), str(row[1]), str(row[2]))
+
+    return in_txn(pool, _tx, op="flight.current_rule_authority")

@@ -81,10 +81,22 @@ provenance, and the no-orphan stale-fence path.
 - **Vector index prefix columns** (D6) — `failure_signatures` gets
   `(stage, error_class, embedding vector_cosine_ops)` rather than
   `(embedding)` alone, because CockroachDB only accelerates filtered
-  vector search when filters hit prefix columns.
+  vector search when filters hit prefix columns. Judged **vector claim
+  cut** 2026-08-10 pending live MiniLM/`fs_sem_v2` EXPLAIN receipt.
 - **Batch-insert avoidance for `VECTOR` columns** (D6) — failure
   signatures are written one row at a time.
 - **`provisioning-cluster-for-production`** — informs
   `scripts/provision_cluster.sh`'s plan/region choices (D1, this file's
   neighbor) once the cluster is actually provisioned against a live
   account.
+
+## Flight / eligibility follow-ons (2026-08-10)
+
+**`designing-application-transactions` + `analyzing-schema-change-storage-risk`
+→ `db/migrations/0010_flight_recorder.sql`, `0015_ecs_routing_decisions.sql`,
+`src/cairn/db/flight.py::contradict_and_tighten`.** Rule-head advance and
+ECS-routing persistence stay inside short `SERIALIZABLE` closures with no
+S3/Bedrock side effects — the same whole-transaction retry discipline as
+`in_txn`. Contradiction tightening supersedes the prior rule revision and
+rolls the generation in one decision so a reader never sees a quarantined
+derivation still authorized by a live identity rule head.

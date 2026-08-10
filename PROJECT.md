@@ -18,7 +18,7 @@
 | Repo | Public GitHub, created inside the submission window, no pre-existing code |
 | Demo | Public URL (CloudFront → ALB → ECS Fargate), read-only judge mode, no login |
 | Video | ≤ 2:55, YouTube, unlisted-but-public |
-| CockroachDB tools used | **4 of 4** — Distributed Vector Indexing (C-SPANN), Cloud Managed MCP Server, `ccloud` CLI, Agent Skills Repo |
+| CockroachDB tools used | **2 (judged)** — `ccloud` CLI (topology → ECS routing), Agent Skills Repo. Vector indexing + Managed MCP cut until live receipts exist (see `.cairn/out/eligibility/vector_claim_removed.json`) |
 | AWS services used | **6** — Bedrock, ECS Fargate, S3, Lambda, EventBridge, CloudWatch |
 
 Stage-one judging is pass/fail on theme + required APIs. Every item above is a hard gate; §9 is the checklist that proves each one.
@@ -407,7 +407,7 @@ Prefix columns `(stage, error_class)` are used because CockroachDB only accelera
 **3. `ccloud` CLI.** Used in three places, all real:
 - `make cluster` — `ccloud cluster create`, `ccloud cluster sql --url` for the connection string, `ccloud cluster user create` for the app role; teardown via `ccloud cluster delete`. Provisioning is scripted, reproducible, and disposable.
 - CI — a service-account API key drives `ccloud` non-interactively to create an **ephemeral verification cluster** per pull request, apply migrations, run the full integration suite (including the race test) against real CockroachDB, and delete the cluster. No mocks in the concurrency tests.
-- Runtime — `cairn doctor` shells `ccloud cluster list --json` to report cluster identity, regions, and plan alongside Cairn's own health checks, so an operator sees the memory layer's topology from inside the product.
+- Runtime — `cairn doctor --cloud` runs documented `ccloud cluster info`, parses labeled topology, and persists an ECS-routing decision when the DB is reachable (fail closed otherwise).
 
 **4. Agent Skills Repo** (`cockroachlabs/cockroachdb-skills`, Apache-2.0). Installed at `.agents/skills/` via `npx skills add cockroachlabs/cockroachdb-skills` and committed. Cairn's own contribution guide routes work through them: the retry/serializable-transaction and observability skills are the reference for `cairn/db/txn.py`, and `CONTRIBUTING.md` instructs agents to load the performance and resilience skills before touching schema or transaction code. `docs/SKILLS_USAGE.md` records exactly which skills informed which files — including the two schema changes they caused (see §10).
 

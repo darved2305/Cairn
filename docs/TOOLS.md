@@ -1,23 +1,35 @@
 # Tools: what each one does, and why it is load-bearing
 
-Cairn uses **all four** CockroachDB tools and **six** AWS services. This
-document explains what each does *in this system specifically* — not what it
-does in general — and, for each, the visible behaviour that would disappear if
-it were removed. "We installed it" is not meaningful use, so the test applied
-throughout is: **what breaks without this?**
+**Judged CockroachDB tool pair (2026-08-10):** `ccloud` CLI (topology →
+persisted ECS routing) + Agent Skills Repo (`docs/SKILLS_USAGE.md`).
+**Distributed Vector Indexing is cut** until a live filtered `fs_sem_v2`
+`EXPLAIN` over MiniLM 384-d rows with provider/model/weights digest exists
+(`.cairn/out/eligibility/vector_claim_removed.json`). Managed MCP is not
+claimed as live runtime evidence.
+
+Cairn uses **six** AWS services. This document explains what each does *in
+this system specifically* — not what it does in general — and, for each, the
+visible behaviour that would disappear if it were removed. "We installed it"
+is not meaningful use, so the test applied throughout is: **what breaks
+without this?**
 
 Where something is implemented but not yet verified end-to-end, that is stated
 in the entry rather than left for a reader to discover.
 
 ---
 
-# CockroachDB — 4 of 4 tools
+# CockroachDB tools
 
-## 1. Distributed Vector Indexing (C-SPANN)
+## 1. Distributed Vector Indexing (C-SPANN) — CLAIM CUT
 
-**What it does here.** `failure_signatures.embedding` is a `VECTOR(1024)`
-column holding an Amazon Titan Text Embeddings V2 embedding (`normalize=true`)
-of a normalized one-paragraph description of a real failure. The index is:
+**Status.** Omitted from the judged tool table. Migration 0010 defines
+`failure_embedding_revisions` + optional `fs_sem_v2`, but no live MiniLM
+384-d C-SPANN receipt exists yet. Legacy Titan / OfflineFallback 1024-d
+vectors are never relabeled as semantic.
+
+**Legacy path (not a submission claim).** `failure_signatures.embedding` is a
+`VECTOR(1024)` column that may hold Titan or OfflineFallback hash vectors.
+The legacy index shape is:
 
 ```sql
 CREATE VECTOR INDEX fs_sem ON failure_signatures (stage, error_class, embedding vector_cosine_ops);
@@ -120,10 +132,12 @@ Used in three real places, none of them ceremonial:
   delete the cluster. No mocks in the concurrency tests — that rule is absolute
   in this repo. (The workflow job exists and is gated on the secret being
   present; see `.github/workflows/ci.yml`.)
-- **Runtime.** `cairn doctor` shells `ccloud cluster list --json` to report
-  cluster identity, regions, and plan alongside Cairn's own health checks, so
-  an operator sees the memory layer's topology from inside the product rather
-  than from a separate console tab.
+- **Runtime.** `cairn doctor --cloud` runs documented `ccloud cluster info`
+  (labeled text, never an invented `--json` flag on ccloud), parses it with
+  the version-pinned `ccloud_parse` module, and — when the database is
+  reachable — persists one ECS-routing decision in `ecs_routing_decisions`
+  that consumes `{parser_version, cluster_regions, raw_output_digest, ...}`.
+  Stale or non-AWS topology fails closed.
 
 **Without it.** Setup becomes a manual, unreproducible sequence of web-console
 clicks, and the "no mocked database" guarantee in CI becomes unaffordable.

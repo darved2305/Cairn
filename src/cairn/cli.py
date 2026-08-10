@@ -1311,8 +1311,17 @@ def _doctor_ccloud_report() -> dict[str, object]:
 
     Fail closed on missing binary, missing cluster name, nonzero exit, or
     unrecognised output. Never call undocumented ``--json`` on ccloud.
+    When the database is reachable, also persist one ECS-routing decision
+    that consumes the normalized topology (eligibility gate Block 0A).
     """
     from cairn.ccloud_parse import CcloudParseError, parse_cluster_info, topology_to_jsonable
+    from cairn.flight.ecs_routing import (
+        EcsRoutingError,
+        ccloud_cli_version,
+        decide_ecs_region,
+        latest_routing_decision,
+        persist_routing_decision,
+    )
 
     ccloud_path = shutil.which("ccloud")
     if ccloud_path is None:
@@ -1338,6 +1347,14 @@ def _doctor_ccloud_report() -> dict[str, object]:
             "ok": False,
             "fail_closed_reason": "CAIRN_CLUSTER_NAME is unset; cannot run ccloud cluster info",
             "detail": "CAIRN_CLUSTER_NAME is unset; cannot run ccloud cluster info",
+        }
+    try:
+        ccloud_version = ccloud_cli_version()
+    except EcsRoutingError as exc:
+        return {
+            "ok": False,
+            "fail_closed_reason": str(exc),
+            "detail": str(exc),
         }
     try:
         completed = subprocess.run(
@@ -1370,10 +1387,41 @@ def _doctor_ccloud_report() -> dict[str, object]:
             "detail": f"ccloud output unrecognised (fail closed): {exc}",
         }
     payload = topology_to_jsonable(topo)
+    payload["ccloud_version"] = ccloud_version
     payload["ok"] = True
     payload["detail"] = (
         f"reachable, cluster={topo.cluster_name}, regions={list(topo.cluster_regions)}"
     )
+
+    # Planner consumption: one persisted ECS-routing decision, or an explicit
+    # fail-closed reason. Never invent a region when topology cannot authorize.
+    preferred = (
+        os.environ.get("CAIRN_WORKER_REGION") or os.environ.get("CAIRN_AWS_REGION") or ""
+    ).strip() or None
+    try:
+        decision = decide_ecs_region(
+            topo, ccloud_version=ccloud_version, preferred=preferred
+        )
+        try:
+            pool = get_pool()
+            persist_routing_decision(pool, decision)
+            payload["ecs_routing"] = decision.to_jsonable()
+            payload["ecs_routing"]["persisted"] = True
+        except Exception as exc:  # noqa: BLE001 - doctor must report, never crash
+            payload["ecs_routing"] = decision.to_jsonable()
+            payload["ecs_routing"]["persisted"] = False
+            payload["ecs_routing"]["persist_error"] = str(exc)[:200]
+            try:
+                prior = latest_routing_decision(get_pool(), cluster_id=topo.cluster_id)
+                if prior is not None:
+                    payload["ecs_routing_prior"] = prior.to_jsonable()
+            except Exception:  # noqa: BLE001
+                pass
+    except EcsRoutingError as exc:
+        payload["ecs_routing"] = {
+            "ok": False,
+            "fail_closed_reason": str(exc),
+        }
     return payload
 
 

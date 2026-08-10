@@ -1905,9 +1905,7 @@ def contradict_and_tighten(
     return result
 
 
-def current_rule_authority(
-    pool: ConnectionPool, *, rule_id: str
-) -> tuple[int, str, str] | None:
+def current_rule_authority(pool: ConnectionPool, *, rule_id: str) -> tuple[int, str, str] | None:
     """Return (revision, state, required_authority) for the live rule head."""
 
     def _tx(cur: psycopg.Cursor) -> tuple[int, str, str] | None:

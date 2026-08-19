@@ -1,4 +1,4 @@
-# CloudFront in front of the ALB — PROJECT.md §6.1: "CloudFront fronts the
+# CloudFront in front of the ALB — docs/project/PROJECT.md §6.1: "CloudFront fronts the
 # ALB for the public demo URL and TLS." Uses CloudFront's own
 # *.cloudfront.net domain and default certificate — no custom domain or
 # ACM validation needed for a judged demo. Caching is disabled: this
@@ -64,6 +64,6 @@ resource "aws_cloudfront_distribution" "console" {
 }
 
 output "demo_url" {
-  description = "The public demo URL — PLAN.md §7 checklist item. Null until create_cloudfront=true and the AWS account is verified for CloudFront."
+  description = "The public demo URL — docs/project/PLAN.md §7 checklist item. Null until create_cloudfront=true and the AWS account is verified for CloudFront."
   value       = var.create_cloudfront ? "https://${aws_cloudfront_distribution.console[0].domain_name}" : null
 }

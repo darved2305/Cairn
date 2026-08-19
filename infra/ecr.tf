@@ -1,4 +1,4 @@
-# One image, one repo — PLAN.md §6.1: "One image, one deploy path." The
+# One image, one repo — docs/project/PLAN.md §6.1: "One image, one deploy path." The
 # worker and console tasks (ecs.tf) run the same image with different
 # container commands, not separate images.
 

@@ -1,6 +1,6 @@
 """Integration tests for cairn.db.claims — real CockroachDB, no mocks.
 
-Covers PLAN.md D2's four required proofs:
+Covers docs/project/PLAN.md D2's four required proofs:
   1. 2 workers, same key, 200 iterations -> exactly one winner, every time.
   2. the loser subscribes and receives the artifact id.
   3. a dispossessed worker's fenced write affects 0 rows.
@@ -180,7 +180,7 @@ def test_live_claim_refuses_takeover(pool) -> None:
 )
 @given(cycles=st.integers(min_value=1, max_value=4))
 def test_fence_strictly_increases_across_takeovers(pool, cycles: int) -> None:
-    # 500 examples (PLAN.md's default property-test budget) assumes a pure,
+    # 500 examples (docs/project/PLAN.md's default property-test budget) assumes a pure,
     # DB-free function; this property is asserted over real transactions
     # against a live cluster, so the example count is deliberately smaller.
     #

@@ -1,7 +1,7 @@
-# ALB in front of the console — PLAN.md §7.2's public demo URL. Ingress is
+# ALB in front of the console — docs/project/PLAN.md §7.2's public demo URL. Ingress is
 # restricted to CloudFront's own origin-facing IP ranges via AWS's managed
 # prefix list, not "anyone on the internet who guesses the ALB's DNS name"
-# — PLAN.md's security audit calls for "CloudFront-only ALB ingress."
+# — docs/project/PLAN.md's security audit calls for "CloudFront-only ALB ingress."
 # TLS itself is terminated at CloudFront (cloudfront.tf), not here: the
 # ALB talks plain HTTP to CloudFront over AWS's internal network, which is
 # the standard pattern for a demo without a custom domain / ACM cert.
@@ -31,7 +31,7 @@ resource "aws_security_group" "alb" {
   # Until then CloudFront can't be created, so the CloudFront-only rule
   # above leaves the console completely unreachable — this is the only
   # path to a public demo URL in the meantime. Read-only, no-auth API
-  # (PLAN.md §8 open decision 4), so the exposure is low, but it's still a
+  # (docs/project/PLAN.md §8 open decision 4), so the exposure is low, but it's still a
   # deliberate, temporary override of the documented ingress design.
   ingress {
     description = "TEMP public HTTP - remove once CloudFront is live"

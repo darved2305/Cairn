@@ -1,11 +1,11 @@
-"""D5 exit criteria — PLAN.md D5: "comment-only change -> 5 nodes reused
+"""D5 exit criteria — docs/project/PLAN.md D5: "comment-only change -> 5 nodes reused
 in ~4s; hidden_dim change -> features reused, checkpoint+eval
 recomputed." Exercises D2 (claims), D3 (the real workload), D4 (work
 keys), and D5 (classification + probes + decisions) composed together
 against a live CockroachDB cluster. No mocked compute, no mocked DB —
-PLAN.md's anti-simulation rule.
+docs/project/PLAN.md's anti-simulation rule.
 
-Two scenarios, matching the two rows of PROJECT.md §4.3's worked-example
+Two scenarios, matching the two rows of docs/project/PROJECT.md §4.3's worked-example
 table that are actually novel to D5 (the other three — pure comment/format
 edits, and a downstream-only eval.metrics change — are already covered by
 tests/property/test_code_workkey.py's work-key invariance property and by
@@ -21,7 +21,7 @@ work key at all):
 2. A `train.hidden_dim` change leaves the `features` stage's work key
    untouched (hidden_dim isn't in its recorded config reads) but changes
    `checkpoint`'s — proving D4's causal graph, not just D5, but it's the
-   "money shot" scenario PLAN.md explicitly names as the exit bar.
+   "money shot" scenario docs/project/PLAN.md explicitly names as the exit bar.
 """
 
 from __future__ import annotations
@@ -306,7 +306,7 @@ def test_hidden_dim_change_reuses_features_and_recomputes_checkpoint(
     assert claims.complete(pool, features_key, owner, features_claim.fence, features_record)
 
     # --- a second acquire under the (identical) new-plan features key is a
-    # free identity reuse: no recompute, exactly PLAN.md's "features reused" ---
+    # free identity reuse: no recompute, exactly docs/project/PLAN.md's "features reused" ---
     new_owner, new_run = f"owner2-{token}", uuid.uuid4()
     features_claim_2 = claims.acquire(
         pool, features_new.work_key.value, "features", new_owner, "host-b", region, new_run

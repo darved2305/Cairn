@@ -1,8 +1,8 @@
-"""Amazon Titan Text Embeddings V2 via Bedrock — PLAN.md §2, PROJECT.md §4.1.
+"""Amazon Titan Text Embeddings V2 via Bedrock — docs/project/PLAN.md §2, docs/project/PROJECT.md §4.1.
 
 1024-dim, `normalize=true`, matching `failure_signatures.embedding
 VECTOR(1024)`. Bedrock model access is the one setup step with an approval
-queue (PLAN.md §8), and PLAN.md §13's risk table is explicit that "the
+queue (docs/project/PLAN.md §8), and docs/project/PLAN.md §13's risk table is explicit that "the
 demo's correctness path never depends on the LLM": `--no-llm` degrades
 embedding-based matching (`strong_semantic`/`weak`) to unavailable, but
 `exact` matches, structural classes, and every probe still work without
@@ -141,7 +141,7 @@ class TitanEmbeddingProvider:
 
 class OfflineFallbackEmbeddingProvider:
     """NOT Titan. A deterministic, seeded, locally-computed unit vector,
-    used only when Bedrock access isn't configured (PLAN.md §13's
+    used only when Bedrock access isn't configured (docs/project/PLAN.md §13's
     `--no-llm` path) — for local dev and CI. Deterministic so the same
     text always produces the same vector run to run (the CI
     vector-fallback-mode integration suite relies on that), and

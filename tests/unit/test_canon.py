@@ -1,7 +1,7 @@
 """Unit + property tests for cairn.fingerprint.canon.
 
 canonical_json is the primitive every fingerprint in Cairn is built on
-(work_key, env fingerprint) — PLAN.md §5 lists "canonical JSON stable
+(work_key, env fingerprint) — docs/project/PLAN.md §5 lists "canonical JSON stable
 under key permutation" explicitly as a required property test.
 """
 

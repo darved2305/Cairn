@@ -5,7 +5,7 @@
  * Nothing in this file invents a value. There are no defaults that stand in
  * for a missing field, no `?? 0`, no placeholder strings — a field the API did
  * not send arrives here as null and every component renders that absence
- * explicitly. PROJECT.md §5.4's rule ("the UI shows only measured values, plus
+ * explicitly. docs/project/PROJECT.md §5.4's rule ("the UI shows only measured values, plus
  * clearly-labelled arithmetic on them") is only true if the client half also
  * refuses to fill gaps, so this layer stays deliberately dumb.
  */

@@ -2,7 +2,7 @@
 `list_tables`, `get_table_schema`, `select_query`, `explain_query`.
 
 These are the tool names the **CockroachDB Cloud MCP Server**
-(`https://cockroachlabs.cloud/mcp`) exposes, and which PROJECT.md §6.2 names
+(`https://cockroachlabs.cloud/mcp`) exposes, and which docs/project/PROJECT.md §6.2 names
 as Cairn's fourth CockroachDB tool. Two backends implement the same four
 contracts:
 
@@ -20,7 +20,7 @@ rendered in the UI (`tool_backend` on the `/api/memory/inspect` response).
 Neither backend is ever presented as the other: an answer produced over
 pgwire does not get to claim it came from the MCP server.
 
-Every constraint PROJECT.md §6.2 commits to is enforced here, in one place,
+Every constraint docs/project/PROJECT.md §6.2 commits to is enforced here, in one place,
 for both backends: a 20 s statement timeout, a 10 KiB cap on any single tool
 response, a 25-row default limit on `select_query`, and a hard refusal on
 `crdb_internal`. The refusal is not advisory — a query naming it never
@@ -41,7 +41,7 @@ from psycopg_pool import ConnectionPool
 
 from cairn.db.txn import in_txn
 
-# PROJECT.md §6.2's stated limits, in one place.
+# docs/project/PROJECT.md §6.2's stated limits, in one place.
 QUERY_TIMEOUT_S = 20
 RESPONSE_CAP_BYTES = 10 * 1024
 DEFAULT_ROW_LIMIT = 25
@@ -87,7 +87,7 @@ def _cap(payload: str) -> tuple[str, bool]:
         return payload, False
     clipped = encoded[:RESPONSE_CAP_BYTES].decode("utf-8", errors="ignore")
     return (
-        clipped + f"\n... [truncated at {RESPONSE_CAP_BYTES} bytes, PROJECT.md §6.2 response cap]",
+        clipped + f"\n... [truncated at {RESPONSE_CAP_BYTES} bytes — §6.2 response cap]",
         True,
     )
 
@@ -276,7 +276,7 @@ class McpToolBackend(ToolBackend):
 
     **Unverified against the live server.** This machine has no CockroachDB
     Cloud service-account key, so the request/response shapes below follow the
-    MCP Streamable-HTTP spec and the tool names PROJECT.md §6.2 documents, but
+    MCP Streamable-HTTP spec and the tool names docs/project/PROJECT.md §6.2 documents, but
     have not been executed end to end. `configured()` is what decides whether
     this backend is used at all — absent credentials, `resolve_backend` falls
     back to `DirectSqlToolBackend` and says so in the API response rather than

@@ -1,5 +1,5 @@
 /**
- * Panels 1-3 of PROJECT.md §7.2: Causal Graph, Decision Ledger, Claim Theatre.
+ * Panels 1-3 of docs/project/PROJECT.md §7.2: Causal Graph, Decision Ledger, Claim Theatre.
  *
  * All three read live from CockroachDB on an interval. Where the spec asks for
  * a specific honesty affordance, it is implemented as such rather than as a
@@ -130,7 +130,7 @@ export function CausalGraph() {
 
 /** Per-node evidence: the class that applied, the probe that ran, its
  * sample/population fraction, its runtime, and the artifact_inputs edges that
- * were consulted (PROJECT.md §4.3's "a judge can click any green node and see
+ * were consulted (docs/project/PROJECT.md §4.3's "a judge can click any green node and see
  * why it was green"). */
 function EvidenceDrawer({
   decision,
@@ -208,8 +208,8 @@ function EvidenceDrawer({
                 <p className="mt-3 text-xs leading-relaxed text-ink-3">
                   Selection rule: <Mono>{detail.probe.sample_spec}</Mono>. This proves the sampled
                   rows are identical. It does not prove the rest of the population is — see{" "}
-                  <a className="underline" href="https://github.com/darved2305/cairn/blob/main/docs/PROBES.md">
-                    docs/PROBES.md
+                  <a className="underline" href="https://github.com/darved2305/cairn/blob/main/docs/internals/PROBES.md">
+                    docs/internals/PROBES.md
                   </a>
                   .
                 </p>
@@ -554,7 +554,7 @@ export function FlightExecPanel() {
 }
 
 // ---------------------------------------------------------------------------
-// Leaf Map — Day 4's 64-leaf jsonl-map/v1 grid (PLAN.md §11)
+// Leaf Map — Day 4's 64-leaf jsonl-map/v1 grid (docs/project/PLAN.md §11)
 // ---------------------------------------------------------------------------
 
 function leafTone(leaf: LeafRow, rootCreatedAt: string): string {

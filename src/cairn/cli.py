@@ -110,10 +110,10 @@ def _graceful[T](fn: Callable[..., T]) -> Callable[..., T]:
 
 
 app = typer.Typer(help="Causal reuse memory for expensive compute.")
-memory_app = typer.Typer(help="Query negative computational memory directly — PROJECT.md §7.1.")
+memory_app = typer.Typer(help="Query negative computational memory directly.")
 app.add_typer(memory_app, name="memory")
 
-# Mirrors this repo's own cairn.yaml (PLAN.md §1's stage registry shape) —
+# Mirrors this repo's own cairn.yaml (docs/project/PLAN.md §1's stage registry shape) —
 # `init` gives a fresh repo a starting point that round-trips through
 # TrackedConfig.load, not a minimal/empty stub that would fail plan/run.
 _INIT_TEMPLATE = """\
@@ -741,7 +741,7 @@ def claim_demo_command(
             help=(
                 "Sleep while heartbeating before completing — gives "
                 "scripts/kill_worker.sh a window to kill this process mid-run "
-                "and prove a real takeover (PROJECT.md §4.5)."
+                "and prove a real takeover (docs/project/PROJECT.md §4.5)."
             ),
         ),
     ] = 0.0,
@@ -837,7 +837,7 @@ def run_command(
         float, typer.Option("--approval-usd", envvar="CAIRN_APPROVAL_USD")
     ] = 0.50,
 ) -> None:
-    """The agent loop (PROJECT.md §6.4): perceive, recall, decide, act,
+    """The agent loop (docs/project/PROJECT.md §6.4): perceive, recall, decide, act,
     learn — for real, against the live cluster and real S3 storage. Exits
     non-zero on REFUSE_DOOMED/REFUSE_DUPLICATE (2) or ESCALATE (3), the
     same way `cairn plan` exits non-zero on a doomed plan, so this is
@@ -885,7 +885,7 @@ def unquarantine_command(
     artifact_id: Annotated[str, typer.Argument(help="The quarantined artifact_id to clear.")],
     reason: Annotated[str, typer.Option("--reason", help="Required audit trail.")],
 ) -> None:
-    """PROJECT.md §6.5: quarantine is one-way except through this explicit,
+    """docs/project/PROJECT.md §6.5: quarantine is one-way except through this explicit,
     audited human override."""
 
     pool = get_pool()
@@ -910,7 +910,7 @@ def receipt_command(
         typer.Option("--verify", help="Re-fetch and rehash every named blob against S3."),
     ] = False,
 ) -> None:
-    """Canonical JSON receipt for one derivation — PLAN.md §19 Day 6.
+    """Canonical JSON receipt for one derivation — docs/project/PLAN.md §19 Day 6.
 
     Every field is read from CockroachDB; ``--verify`` additionally
     re-fetches each blob this receipt names from S3 and rehashes it rather
@@ -956,7 +956,7 @@ def init_command(
         bool, typer.Option("--force", help="Overwrite an existing config file.")
     ] = False,
 ) -> None:
-    """Scaffold a cairn.yaml stage registry (PROJECT.md §7.1)."""
+    """Scaffold a cairn.yaml stage registry (docs/project/PROJECT.md §7.1)."""
 
     if config_path.exists() and not force:
         typer.echo(f"{config_path} already exists — pass --force to overwrite", err=True)
@@ -976,7 +976,7 @@ def explain_command(
     artifact_id: Annotated[
         str | None,
         typer.Argument(
-            help="Five-stage artifact id (PROJECT.md §7.1). Omit when using "
+            help="Five-stage artifact id (docs/project/PROJECT.md §7.1). Omit when using "
             "--run / --work / --artifact for the Flight leaf path."
         ),
     ] = None,
@@ -1004,7 +1004,7 @@ def explain_command(
     """Provenance for one artifact OR the Flight leaf path for a root.
 
     Positional ``ARTIFACT_ID`` keeps the five-stage graph explain
-    (PROJECT.md §7.1). ``--run`` / ``--work`` / ``--artifact`` add the
+    (docs/project/PROJECT.md §7.1). ``--run`` / ``--work`` / ``--artifact`` add the
     Day-6 jsonl-map leaf path (bucket → slice → action → owner/fence →
     root verifier) from persisted derivation rows — they do not replace
     the five-stage mode.
@@ -1120,7 +1120,7 @@ def memory_search_command(
     ] = None,
     limit: Annotated[int, typer.Option("--limit")] = 8,
 ) -> None:
-    """Search negative computational memory directly — PROJECT.md §7.1.
+    """Search negative computational memory directly — docs/project/PROJECT.md §7.1.
     Prints plain cosine distances only, never a tier verdict: tiering
     (db/memory.py::tier) needs a proposed plan's structured features to
     know which fields are causal, which a bare text query doesn't have."""
@@ -1173,7 +1173,7 @@ def memory_search_command(
 def memory_why_blocked_command(
     output: Annotated[str, typer.Option("--output", help="table or json")] = "table",
 ) -> None:
-    """Explain the most recent refusal in the decision ledger — PROJECT.md §7.1."""
+    """Explain the most recent refusal in the decision ledger — docs/project/PROJECT.md §7.1."""
 
     if output not in {"table", "json"}:
         raise typer.BadParameter("must be 'table' or 'json'", param_hint="--output")
@@ -1208,7 +1208,7 @@ def doctor_command(
         bool, typer.Option("--json", help="Emit a machine-readable JSON report on stdout.")
     ] = False,
 ) -> None:
-    """Diagnose the environment — PROJECT.md §7.1: database, schema, vector
+    """Diagnose the environment — docs/project/PROJECT.md §7.1: database, schema, vector
     index, ccloud cluster identity, and AWS credentials. Only the database
     and schema checks gate the exit code; ccloud/AWS/vector-index are
     reported honestly but never block a green `doctor` on a machine that
@@ -1400,15 +1400,18 @@ def _doctor_ccloud_report() -> dict[str, object]:
     ).strip() or None
     try:
         decision = decide_ecs_region(topo, ccloud_version=ccloud_version, preferred=preferred)
+        # Bind the routing dict to its own name first: `payload` is a
+        # dict[str, object], so indexing straight back into it loses the
+        # element type and mypy --strict rejects the nested assignment.
+        routing: dict[str, object] = decision.to_jsonable()
+        payload["ecs_routing"] = routing
         try:
             pool = get_pool()
             persist_routing_decision(pool, decision)
-            payload["ecs_routing"] = decision.to_jsonable()
-            payload["ecs_routing"]["persisted"] = True
+            routing["persisted"] = True
         except Exception as exc:  # noqa: BLE001 - doctor must report, never crash
-            payload["ecs_routing"] = decision.to_jsonable()
-            payload["ecs_routing"]["persisted"] = False
-            payload["ecs_routing"]["persist_error"] = str(exc)[:200]
+            routing["persisted"] = False
+            routing["persist_error"] = str(exc)[:200]
             try:
                 prior = latest_routing_decision(get_pool(), cluster_id=topo.cluster_id)
                 if prior is not None:

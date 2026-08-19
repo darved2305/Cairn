@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One-time vendoring: fetch the 20 Newsgroups 4-category corpus and
 upload a fixed, versioned snapshot to S3 so the demo pipeline never
-depends on the corpus site being reachable at run time (PROJECT.md §5.4).
+depends on the corpus site being reachable at run time (docs/project/PROJECT.md §5.4).
 
 This is NOT a Cairn stage — it has no work_key, is never claimed, and
 isn't part of the causal graph. It's a one-time setup step, run once per

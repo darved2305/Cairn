@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Composite Action entrypoint — PLAN.md §16.
+# Composite Action entrypoint — docs/project/PLAN.md §16.
 #
 # Fail-safes (non-negotiable):
 # - argv_json must parse as a JSON array (never eval'd as a shell string)
@@ -33,7 +33,7 @@ PY
 fi
 
 if [[ "$CAIRN_OCI_IMAGE" != *@sha256:* ]]; then
-  echo "::error::oci_image must be an immutable REPO@sha256:HEX ref (PLAN.md §16)"
+  echo "::error::oci_image must be an immutable REPO@sha256:HEX ref (docs/project/PLAN.md §16)"
   exit 2
 fi
 
@@ -60,7 +60,7 @@ if [[ "$untrusted_fork" -eq 1 ]]; then
   can_publish=0
 fi
 if [[ -z "${CAIRN_NAMESPACE_TOKEN:-}" && -z "${CAIRN_DATABASE_URL:-}" ]]; then
-  echo "::warning::no CAIRN_NAMESPACE_TOKEN / CAIRN_DATABASE_URL — falling back to local run (PLAN.md §16)"
+  echo "::warning::no CAIRN_NAMESPACE_TOKEN / CAIRN_DATABASE_URL — falling back to local run (docs/project/PLAN.md §16)"
   can_publish=0
 fi
 

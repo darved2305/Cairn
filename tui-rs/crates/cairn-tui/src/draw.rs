@@ -30,10 +30,10 @@ use crate::theme::Theme;
 
 /// Below either of these the six-region layout stops being readable and
 /// collapses to one panel plus a numbered tab bar. Chosen from the layout's
-/// own arithmetic, not guessed: the full layout needs 1 status + 1 command
-/// + 1 footer + three panel rows that each need a border pair plus at least
-/// two content rows, and the pipeline's five side-by-side cards stop fitting
-/// their labels under roughly 80 columns.
+/// own arithmetic, not guessed: the full layout needs one status row, one
+/// command row, one footer row, and three panel rows that each need a border
+/// pair plus at least two content rows; and the pipeline's five side-by-side
+/// cards stop fitting their labels under roughly 80 columns.
 pub const MIN_ROWS: u16 = 24;
 pub const MIN_COLS: u16 = 80;
 
@@ -823,7 +823,7 @@ fn memory_card<'a>(entry: &MemoryMatch, theme: &Theme) -> Vec<Line<'a>> {
             theme.fg(theme.colors.stone),
         )));
     }
-    // PROJECT.md §7.2: a weak match is advisory and must say so — it never
+    // docs/project/PROJECT.md §7.2: a weak match is advisory and must say so — it never
     // blocks anything, and the panel must not let it look like it does.
     let mut tail = vec![Span::styled(
         format!("  {}", entry.strength.label()),
@@ -1326,7 +1326,7 @@ mod tests {
         assert!(screen.contains("worker-b"), "claim owner missing");
         assert!(screen.contains("worker-a"), "the challenger (us) is missing");
         assert!(screen.contains("lease"), "no lease countdown");
-        // The advisory label is on screen, per PROJECT.md §7.2.
+        // The advisory label is on screen, per docs/project/PROJECT.md §7.2.
         assert!(screen.contains("advisory"), "a weak memory match must be labelled advisory");
     }
 
@@ -1592,5 +1592,24 @@ mod tests {
     fn the_clock_column_degrades_to_padding_for_local_lines() {
         assert_eq!(clock("2026-08-08T12:04:31.000000+00:00"), "12:04:31 ");
         assert_eq!(clock("").len(), 9, "a local line still aligns with timestamped ones");
+    }
+
+    /// Regenerates `docs/assets/tui/tui-overview.txt` — the block README.md
+    /// embeds. It goes through the real renderer over `populated()`, the same
+    /// event payloads `src/cairn/obs/events.py` emits, so the README shows this
+    /// binary's actual output rather than a drawing of it.
+    ///
+    /// `#[ignore]` because its only job is to produce that file:
+    ///
+    ///     cargo test -p cairn-tui -- --ignored --nocapture layout_snapshot \
+    ///       > ../docs/assets/tui/raw.txt
+    #[test]
+    #[ignore]
+    fn layout_snapshot() {
+        let (mut app, mut terminal) = populated(132, 38);
+        terminal.draw(|frame| draw(frame, &mut app)).unwrap();
+        println!("--8<-- SNAPSHOT BEGIN");
+        println!("{}", rendered(&terminal));
+        println!("--8<-- SNAPSHOT END");
     }
 }

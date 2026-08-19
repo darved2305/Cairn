@@ -1,4 +1,4 @@
-"""Deterministic change classification — PROJECT.md §3.3.
+"""Deterministic change classification — docs/project/PROJECT.md §3.3.
 
 Six classes, each an explicit, mechanical proof obligation discharged over
 the structural fingerprints D4 already computes (astcanon digests, reach.py
@@ -6,7 +6,7 @@ reachability) plus, where the proof needs it, a fresh AST re-parse of the
 specific changed units. No class is asserted safe: every function here
 returns a :class:`ClassVerdict` and the caller recomputes whenever
 ``applies`` is False or ``refused`` is True. This module never authorizes
-reuse by itself — see PROJECT.md §3.1: "The model may propose reuse.
+reuse by itself — see docs/project/PROJECT.md §3.1: "The model may propose reuse.
 Deterministic evidence must authorize it." These functions ARE that
 deterministic evidence; `db/decisions.py` (D5) is what turns a passing
 verdict plus a passing probe into an ``authorized_by='structural'`` row.
@@ -94,7 +94,7 @@ def _reachable_nodes(units: Iterable[CodeUnit]) -> list[ast.AST]:
 def classify_comment_or_formatting(
     old_unit: CodeUnit, new_unit: CodeUnit, *, reachable_units: Iterable[CodeUnit]
 ) -> ClassVerdict:
-    """PROJECT.md §3.3 comment_only / formatting_only.
+    """docs/project/PROJECT.md §3.3 comment_only / formatting_only.
 
     Both classes share one proof: AST-normalization equality
     (``ast_digest`` unchanged — comments and whitespace never reach the
@@ -209,7 +209,7 @@ def classify_logging_only(
     new_file_source: str,
     reachable_units: Iterable[CodeUnit],
 ) -> ClassVerdict:
-    """PROJECT.md §3.3 logging_only.
+    """docs/project/PROJECT.md §3.3 logging_only.
 
     ``old_unit_source``/``new_unit_source`` are the source text of just the
     one changed unit (e.g. a function definition) at each revision — the
@@ -379,7 +379,7 @@ def classify_private_symbol_rename(
     changed_units: Mapping[str, tuple[str, str]],
     reachable_units: Iterable[CodeUnit],
 ) -> ClassVerdict:
-    """PROJECT.md §3.3 private_symbol_rename.
+    """docs/project/PROJECT.md §3.3 private_symbol_rename.
 
     ``changed_units`` maps an arbitrary label (typically a unit_id) to
     ``(old_source, new_source)`` — the source text of that one unit at
@@ -488,7 +488,7 @@ class _DynamicDispatchScanner(ast.NodeVisitor):
 def classify_unreachable_change(
     old_graph: CodeGraph, new_graph: CodeGraph, entrypoint: str, changed_unit_ids: AbstractSet[str]
 ) -> ClassVerdict:
-    """PROJECT.md §3.3 unreachable_change.
+    """docs/project/PROJECT.md §3.3 unreachable_change.
 
     Reachability is computed over the *union* of the old and new graphs so
     that a symbol which used to be reachable and no longer is (or vice
@@ -540,7 +540,7 @@ def classify_unreachable_change(
 def classify_downstream_only_config(
     changed_config_keys: AbstractSet[str], recorded_config_reads: AbstractSet[str]
 ) -> ClassVerdict:
-    """PROJECT.md §3.3 downstream_only_config.
+    """docs/project/PROJECT.md §3.3 downstream_only_config.
 
     ``recorded_config_reads`` must come from the previous run's
     ``artifact_inputs`` rows with ``input_kind='config'`` — i.e. from

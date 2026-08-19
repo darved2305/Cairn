@@ -1,4 +1,4 @@
-"""Determinism pins for the workload stages. PROJECT.md §5.2: "same image +
+"""Determinism pins for the workload stages. docs/project/PROJECT.md §5.2: "same image +
 same inputs => bit-identical outputs, asserted over 3 runs." Call apply()
 once, first thing, before running any stage.
 
@@ -29,7 +29,7 @@ import sys
 SEED = 1337
 NUM_THREADS = 1
 
-# PROJECT.md §5.3 F3: bounded so an over-large allocation raises a
+# docs/project/PROJECT.md §5.3 F3: bounded so an over-large allocation raises a
 # catchable Python-level MemoryError instead of the kernel OOM-killing the
 # whole container. POSIX-only (see _set_memory_ceiling).
 MEMORY_CEILING_BYTES = 3 * 1024**3

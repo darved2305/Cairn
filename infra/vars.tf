@@ -1,4 +1,4 @@
-# Variables — PLAN.md D7. Defaults match PLAN.md/PROJECT.md's locked
+# Variables — docs/project/PLAN.md D7. Defaults match docs/project/PLAN.md/PROJECT.md's locked
 # environment decisions (§2, §6.3); nothing here should need overriding
 # for the judged demo, only for local iteration.
 
@@ -49,13 +49,13 @@ variable "cairn_console_database_url" {
 }
 
 variable "cairn_approval_usd" {
-  description = "Dollar threshold above which the agent escalates instead of launching (action 9, ESCALATE) — PROJECT.md §6.4."
+  description = "Dollar threshold above which the agent escalates instead of launching (action 9, ESCALATE) — docs/project/PROJECT.md §6.4."
   type        = number
   default     = 0.50
 }
 
 variable "cairn_mode" {
-  description = "conservative (default, judged) | balanced (documented, opt-in, never used in the demo) — PROJECT.md §3.2."
+  description = "conservative (default, judged) | balanced (documented, opt-in, never used in the demo) — docs/project/PROJECT.md §3.2."
   type        = string
   default     = "conservative"
 
@@ -72,13 +72,13 @@ variable "container_image_tag" {
 }
 
 variable "worker_cpu" {
-  description = "Fargate vCPU units for a worker task (1024 = 1 vCPU) — PROJECT.md §6.3: 2 vCPU."
+  description = "Fargate vCPU units for a worker task (1024 = 1 vCPU) — docs/project/PROJECT.md §6.3: 2 vCPU."
   type        = number
   default     = 2048
 }
 
 variable "worker_memory" {
-  description = "Fargate memory (MiB) for a worker task — PROJECT.md §6.3: 4 GiB."
+  description = "Fargate memory (MiB) for a worker task — docs/project/PROJECT.md §6.3: 4 GiB."
   type        = number
   default     = 4096
 }
@@ -96,19 +96,19 @@ variable "console_memory" {
 }
 
 variable "bedrock_claude_model_id" {
-  description = "Bedrock model ID for agent reasoning — PLAN.md §2."
+  description = "Bedrock model ID for agent reasoning — docs/project/PLAN.md §2."
   type        = string
   default     = "anthropic.claude-sonnet-5"
 }
 
 variable "bedrock_titan_model_id" {
-  description = "Bedrock model ID for negative-memory embeddings — PLAN.md §2."
+  description = "Bedrock model ID for negative-memory embeddings — docs/project/PLAN.md §2."
   type        = string
   default     = "amazon.titan-embed-text-v2:0"
 }
 
 variable "reaper_interval_seconds" {
-  description = "EventBridge schedule for the lease reaper — PROJECT.md §4.5: bounded takeover latency."
+  description = "EventBridge schedule for the lease reaper — docs/project/PROJECT.md §4.5: bounded takeover latency."
   type        = number
   default     = 30
 }

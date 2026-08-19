@@ -1,10 +1,10 @@
 """checkpoint stage: 2-layer MLP (384 -> 256 -> 4), AdamW, 12 epochs, seed
-1337, deterministic algorithms on. PROJECT.md §5.2: ~28s. Fragmented
+1337, deterministic algorithms on. docs/project/PROJECT.md §5.2: ~28s. Fragmented
 per-epoch — each epoch's state_dict is an independently loadable
-checkpoint, not just a progress marker (PROJECT.md §4.5: "checkpoint
+checkpoint, not just a progress marker (docs/project/PROJECT.md §4.5: "checkpoint
 fragments by epoch").
 
-PROJECT.md §5.3 F1 (label-space mismatch) is deliberately not special-cased
+docs/project/PROJECT.md §5.3 F1 (label-space mismatch) is deliberately not special-cased
 here: training with num_labels=6 against a 4-class feature table raises a
 real `IndexError` out of `nn.CrossEntropyLoss` on its own. That's the
 actual failure Cairn's negative memory (D6) learns from, not a simulation

@@ -10,7 +10,7 @@ redistributed by scikit-learn (`sklearn.datasets.fetch_20newsgroups`).
 Cairn fetches it once via `scripts/vendor_dataset.py` and uploads a fixed,
 versioned snapshot to `s3://<bucket>/datasets/20news-4cat-v1/raw.parquet`
 so the pipeline never depends on the corpus site being reachable at
-demo/run time (PROJECT.md §5.4).
+demo/run time (docs/project/PROJECT.md §5.4).
 
 ## License
 

@@ -1,4 +1,4 @@
-# EventBridge schedule for the reaper — PROJECT.md §6.3: "30-second
+# EventBridge schedule for the reaper — docs/project/PROJECT.md §6.3: "30-second
 # schedule for the reaper. Bounded takeover latency."
 #
 # EventBridge's rate() expression has a hard 1-minute minimum granularity

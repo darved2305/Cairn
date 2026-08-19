@@ -2,7 +2,7 @@ version: 1
 
 data:
   # Versioned snapshot uploaded by scripts/vendor_dataset.py. The object is
-  # s3://cairn-demo-357199110611/datasets/20news-4cat-v1/raw.parquet in the
+  # s3://cairn-demo-111122223333/datasets/20news-4cat-v1/raw.parquet in the
   # deployed demo environment; downstream work keys track this value.
   snapshot_digest: 20news-4cat-v1
 

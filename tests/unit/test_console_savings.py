@@ -1,4 +1,4 @@
-"""The Savings strip's arithmetic — PROJECT.md §5.4's measurement-honesty rule.
+"""The Savings strip's arithmetic — docs/project/PROJECT.md §5.4's measurement-honesty rule.
 
 `_assemble_savings` is deliberately split out of `savings()` as a pure function
 over already-fetched rows precisely so this can be tested without a cluster.
@@ -25,7 +25,7 @@ RATES = {
 }
 
 # One reused artifact: 95 s of measured wall-clock, reused after a 610 ms probe,
-# on the 2 vCPU / 4 GiB Fargate task PROJECT.md §5.2 specifies.
+# on the 2 vCPU / 4 GiB Fargate task docs/project/PROJECT.md §5.2 specifies.
 ONE_REUSE = [ReusedArtifact(duration_ms=95_000, vcpu=2.0, mem_mib=4096, decision_latency_ms=610)]
 
 
@@ -112,7 +112,7 @@ class TestCostAlwaysCarriesItsFormula:
     def test_formula_is_present_and_shows_its_arithmetic(self) -> None:
         cost = _savings(ONE_REUSE, RATES).cost
         assert cost is not None
-        # PROJECT.md §5.4's own worked shape: "95.2 s x $0.0000274/s = $0.0026".
+        # docs/project/PROJECT.md §5.4's own worked shape: "95.2 s x $0.0000274/s = $0.0026".
         assert "x" in cost.formula and "=" in cost.formula
         assert f"{cost.seconds:.1f}s" in cost.formula
 

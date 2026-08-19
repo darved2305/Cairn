@@ -1,5 +1,5 @@
 """P3 feature_resample against the real sentence-transformer model — no
-mock stands in for the embedding call, matching PLAN.md's anti-simulation
+mock stands in for the embedding call, matching docs/project/PLAN.md's anti-simulation
 rule. Marked integration (not unit) for the same reason test_determinism.py
 is: it downloads and runs the real MiniLM model (network on first call,
 then cached).

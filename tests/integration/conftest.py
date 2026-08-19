@@ -1,7 +1,7 @@
 """Shared fixtures for tests that need real external dependencies: a live
 CockroachDB cluster, or the real MiniLM model.
 
-Nothing in tests/integration/ mocks these — see PLAN.md §5's anti-simulation
+Nothing in tests/integration/ mocks these — see docs/project/PLAN.md §5's anti-simulation
 rule. If a dependency isn't available, these tests skip cleanly instead of
 faking a result.
 """
@@ -50,7 +50,7 @@ def warm_embedding_model() -> None:
     workload.determinism's RLIMIT_AS ceiling.
 
     In production the model is vendored into the image at build time
-    (PROJECT.md §5.2) — the running container never downloads it, so the
+    (docs/project/PROJECT.md §5.2) — the running container never downloads it, so the
     memory ceiling only ever has to bound *inference*, not a network
     fetch plus a Rust download-accelerator's own buffers. Test envs don't
     have that vendoring step, so any test that both calls

@@ -1,4 +1,4 @@
-"""Flight leaf-path explanation — PLAN.md §19 Day 6 / feature #28.
+"""Flight leaf-path explanation — docs/project/PLAN.md §19 Day 6 / feature #28.
 
 ``cairn explain --run|--artifact|--work`` renders the persisted causal path
 for a jsonl-map/v1 root: bucket → slice digest → leaf action → owner /

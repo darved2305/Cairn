@@ -1,11 +1,11 @@
-"""Determinism proof: PROJECT.md §5.2 — "same image + same inputs =>
+"""Determinism proof: docs/project/PROJECT.md §5.2 — "same image + same inputs =>
 bit-identical outputs, asserted over 3 runs." Runs the features and
 checkpoint stages three times on a small synthetic corpus and asserts
 every byte matches.
 
 Small corpus, not the real ~3200-document dataset: the property under
 test is determinism of the *computation*, not its runtime on full data —
-PLAN.md's ~95s/~28s stage timings are what the real pipeline costs, not
+docs/project/PLAN.md's ~95s/~28s stage timings are what the real pipeline costs, not
 what proving this property costs. Marked integration rather than unit
 because it downloads and runs the real MiniLM model (network on first
 call, then cached) — no mock stands in for it.

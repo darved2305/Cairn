@@ -490,7 +490,7 @@ fn memory_search_separates_verified_from_advisory_matches() {
     assert_eq!(
         state.memory.matches[1].strength.label(),
         "advisory — does not block",
-        "a weak match must be labelled advisory, per PROJECT.md §7.2"
+        "a weak match must be labelled advisory, per docs/project/PROJECT.md §7.2"
     );
     assert!((state.memory.matches[0].cosine_distance.unwrap() - 0.0412).abs() < 1e-9);
     assert_eq!(state.activity.activity, Activity::Recalling);

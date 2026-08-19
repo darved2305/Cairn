@@ -1,8 +1,8 @@
 -- 0006_memory.sql
--- D6: negative computational memory (PROJECT.md §4.1) and the
+-- D6: negative computational memory (docs/project/PROJECT.md §4.1) and the
 -- contradiction/quarantine mechanism (§6.5). Deliberately does NOT create
 -- the vector index here — CREATE VECTOR INDEX is gated by both a cluster
--- setting and actual engine support that varies by plan/build (PLAN.md
+-- setting and actual engine support that varies by plan/build (docs/project/PLAN.md
 -- §13: "target CockroachDB Cloud Standard... cairn doctor detects index
 -- availability and falls back to exact brute-force cosine via <=> with no
 -- index"). A migration that hard-fails when the index isn't available

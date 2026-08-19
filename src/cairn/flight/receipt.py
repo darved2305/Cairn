@@ -1,4 +1,4 @@
-"""Canonical receipt projection — PLAN.md §19 Day 6, Appendix B.2/B.6.
+"""Canonical receipt projection — docs/project/PLAN.md §19 Day 6, Appendix B.2/B.6.
 
 ``cairn receipt --run <derivation_id> [--verify]`` renders exactly what
 ``publish_derivation`` committed: every field here is read from

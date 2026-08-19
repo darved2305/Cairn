@@ -1,6 +1,6 @@
 -- 0007_cost_rates_seed.sql
 -- Seed the published AWS Fargate on-demand rates the console's Savings strip
--- derives its one non-measured number from (PROJECT.md §5.4: "Derived, and
+-- derives its one non-measured number from (docs/project/PROJECT.md §5.4: "Derived, and
 -- labelled `rate-based`: cost = duration_s × rate_usd_per_second, where rates
 -- live in a cost_rates table seeded with published AWS Fargate on-demand
 -- us-east-1 pricing and editable by the user").

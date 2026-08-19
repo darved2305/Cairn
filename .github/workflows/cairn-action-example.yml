@@ -1,4 +1,4 @@
-# Example caller for the in-repo composite Action (PLAN.md §16).
+# Example caller for the in-repo composite Action (docs/project/PLAN.md §16).
 # Pin oci_image to the same @sha256 digest ECS/local use. argv_json is a
 # JSON array — never a shell string. Fork PRs get no publish credentials.
 #
@@ -30,7 +30,7 @@ jobs:
           partitions: '64'
           output_file: artifacts/features.jsonl
           # Replace with the frozen ECS/local digest before claiming shared identity.
-          oci_image: 357199110611.dkr.ecr.us-east-1.amazonaws.com/cairn@sha256:REPLACE_WITH_REAL_DIGEST
+          oci_image: 111122223333.dkr.ecr.us-east-1.amazonaws.com/cairn@sha256:REPLACE_WITH_REAL_DIGEST
           namespace: ci
         env:
           # Prefer a short-lived namespace token from OIDC exchange — never a

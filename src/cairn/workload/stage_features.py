@@ -1,7 +1,7 @@
 """features stage: sentence-transformers/all-MiniLM-L6-v2 embeddings,
-384-dim fp32, batch 32, max_seq_length=256. PROJECT.md §5.2: ~95s, the
+384-dim fp32, batch 32, max_seq_length=256. docs/project/PROJECT.md §5.2: ~95s, the
 expensive stage — and the one whose partial reuse across an unrelated
-architecture change is the "money shot" PROJECT.md §4.3 is built around.
+architecture change is the "money shot" docs/project/PROJECT.md §4.3 is built around.
 
 Embeddings are written with pyarrow directly (a FixedSizeListArray column)
 rather than through a pandas object column of numpy arrays, so the on-disk
@@ -41,7 +41,7 @@ def _get_model(max_seq_length: int, model_name: str = MODEL_NAME) -> Any:
     fragmentable, resumable *compute*, not for amortizing model load.
 
     max_seq_length is re-applied on every call (cheap attribute set, no
-    reload) rather than baked in at load time — PROJECT.md §5.3's F3
+    reload) rather than baked in at load time — docs/project/PROJECT.md §5.3's F3
     scenario is exactly a caller passing an oversized max_seq_length, and
     that has to reach the live model, not a cached default."""
     if model_name not in _models:
@@ -116,11 +116,11 @@ def run_shards(
     expected_embedding_dim: int | None = EMBEDDING_DIM,
 ) -> Iterator[FeatureShard]:
     """Yields one FeatureShard per shard, in order. Each shard is an
-    independently verifiable unit of work — the fragmentation PROJECT.md
+    independently verifiable unit of work — the fragmentation docs/project/PROJECT.md
     §4.5 resumes from after a crash (features -> 3 shards).
 
     batch_size/max_seq_length are parameters, not just module constants,
-    because PROJECT.md §5.3's F3 failure is exactly this stage misconfigured
+    because docs/project/PROJECT.md §5.3's F3 failure is exactly this stage misconfigured
     with batch_size=4096, max_seq_length=512 — scripts/seed_memory.py (D6)
     needs to be able to actually trigger that, not a stand-in for it."""
     if shard_count < 1 or batch_size < 1 or max_seq_length < 1:

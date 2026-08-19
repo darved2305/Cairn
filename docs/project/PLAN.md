@@ -1,6 +1,6 @@
 # CAIRN — Implementation Plan
 
-Companion to `PROJECT.md`. That document decides *what* and *why*; this one decides *how*, *in what order*, and *when to stop*.
+Companion to `docs/project/PROJECT.md`. That document decides *what* and *why*; this one decides *how*, *in what order*, and *when to stop*.
 
 **Calendar:** today is **2026-08-06**. Hard deadline **2026-08-18 17:00 EDT**. That is 12 working days with a mandatory 1-day buffer. Day 12 is submission, not development.
 
@@ -14,8 +14,8 @@ Companion to `PROJECT.md`. That document decides *what* and *why*; this one deci
 cairn/
 ├── LICENSE                       # Apache-2.0
 ├── README.md                     # 6-command quickstart, tool explanations, screenshots
-├── PROJECT.md
-├── PLAN.md
+├── docs/project/PROJECT.md
+├── docs/project/PLAN.md
 ├── Makefile                      # cluster, migrate, seed, demo, race, teardown
 ├── cairn.yaml                    # stage registry + config for the demo pipeline
 ├── pyproject.toml                # uv/pip, pinned
@@ -250,7 +250,7 @@ Two files with the same digest are semantically identical modulo comments/format
 - BFS from the entrypoint.
 - **Escape hatch scan** — if any of `importlib`, `__import__`, `getattr`, `setattr`, `globals`, `vars`, `eval`, `exec`, `pkg_resources`, `entry_points` appears in the reachable set, return `UNSOUND` and **every structural class refuses**.
 
-Unsoundness is a hard failure, not a warning. That is the honesty guarantee from `PROJECT.md` §4.4/P2.
+Unsoundness is a hard failure, not a warning. That is the honesty guarantee from `docs/project/PROJECT.md` §4.4/P2.
 
 ### 3.4 `db/memory.py` — tiered negative memory
 
@@ -275,7 +275,7 @@ def search(pool, plan_features, embedding) -> list[Match]:
     return [tier(r, plan_features) for r in rows]
 ```
 
-`tier()` implements the table in `PROJECT.md` §4.1 exactly. Thresholds live in one module-level dict so they are tunable and testable:
+`tier()` implements the table in `docs/project/PROJECT.md` §4.1 exactly. Thresholds live in one module-level dict so they are tunable and testable:
 
 ```python
 TIERS = {"exact_requires_structured": True,
@@ -295,7 +295,7 @@ Each day ends with a green `make check` and a commit. Days are ~8 hours.
 
 ### D1 — Wed 2026-08-06 · Foundations
 - Repo, Apache-2.0 `LICENSE`, `pyproject.toml`, `uv` lock, pre-commit (ruff + mypy).
-- `npx skills add cockroachlabs/cockroachdb-skills` → commit `.agents/skills/`; start `docs/SKILLS_USAGE.md`.
+- `npx skills add cockroachlabs/cockroachdb-skills` → commit `.agents/skills/`; start `docs/project/SKILLS_USAGE.md`.
 - `scripts/provision_cluster.sh`: `ccloud auth login`, `ccloud cluster create cairn-dev --plan standard`, `ccloud cluster user create`, capture connection URL into `.env`.
 - `db/migrations/0001_init.sql` for environments/artifacts/artifact_inputs/work_claims/runs.
 - `db/pool.py`, `db/txn.py` + unit tests with an injected `SerializationFailure` to prove whole-closure replay.
@@ -358,7 +358,7 @@ Each day ends with a green `make check` and a commit. Days are ~8 hours.
 
 ### D10 — Fri 08-15 · CI, hardening, honesty pass
 - `ci.yml`: ephemeral per-PR cluster via `ccloud` + service-account key; migrations; unit + integration (both vector modes); race test; determinism test; teardown.
-- Full audit against `PROJECT.md` §9 and the no-simulation rules: grep for `sleep(`, `random.` outside jitter/sampling, hardcoded dollar values, mocked DB in anything that claims to be integration.
+- Full audit against `docs/project/PROJECT.md` §9 and the no-simulation rules: grep for `sleep(`, `random.` outside jitter/sampling, hardcoded dollar values, mocked DB in anything that claims to be integration.
 - Security: no secrets in the image, read-only console role, S3 bucket block-public-access, CloudFront-only ALB ingress.
 - **Exit:** CI green on a fresh PR; audit checklist signed off.
 
@@ -369,7 +369,7 @@ Each day ends with a green `make check` and a commit. Days are ~8 hours.
 - **Exit:** final video file + URL.
 
 ### D12 — Sun 08-17 · Docs + dry run
-- `README.md` quickstart (6 commands), `docs/TOOLS.md` (what each CockroachDB and AWS tool does), `docs/ARCHITECTURE.md` + diagram, `docs/PROBES.md` (guarantees and non-guarantees), `docs/SKILLS_USAGE.md`, `docs/COST.md`.
+- `README.md` quickstart (6 commands), `docs/architecture/SUBSTRATES.md` (what each CockroachDB and AWS tool does), `docs/architecture/OVERVIEW.md` + diagram, `docs/internals/PROBES.md` (guarantees and non-guarantees), `docs/project/SKILLS_USAGE.md`, `docs/operations/COST.md`.
 - Full clean-account dry run from `git clone` to working demo, timed, following only the README.
 - Draft the Devpost submission.
 - **Exit:** a stranger can reproduce the system from the README alone.
@@ -412,10 +412,10 @@ Five hours of buffer before the 17:00 deadline. Submit early; do not touch `main
 - [ ] `README.md`: quickstart, architecture diagram, tool explanations, screenshots
 - [ ] Public demo URL live, read-only, no login, `Run the demo` + `Reset demo`
 - [ ] Video ≤ 2:55, YouTube public, shows CockroachDB memory working
-- [ ] `docs/TOOLS.md` explains all four CockroachDB tools and all six AWS services
-- [ ] `docs/PROBES.md` states each probe's guarantee **and** non-guarantee
-- [ ] `docs/SKILLS_USAGE.md` names the skills and the concrete changes they caused
-- [ ] `docs/COST.md` itemizes real spend and shows the rate table
+- [ ] `docs/architecture/SUBSTRATES.md` explains all four CockroachDB tools and all six AWS services
+- [ ] `docs/internals/PROBES.md` states each probe's guarantee **and** non-guarantee
+- [ ] `docs/project/SKILLS_USAGE.md` names the skills and the concrete changes they caused
+- [ ] `docs/operations/COST.md` itemizes real spend and shows the rate table
 - [ ] Architecture diagram attached to the Devpost entry
 - [ ] Feedback on CockroachDB tools written (optional field — fill it; it is free signal to judges)
 - [ ] CI green; race test 200/200; determinism test passing

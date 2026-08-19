@@ -9,7 +9,7 @@ produces byte-identical output; that determinism is the whole point, since
 the generated corpus is itself an input to the Flight Recorder demo's
 identity system.
 
-PLAN.md §11/§18 names 3,890 records as the frozen submission corpus; this
+docs/project/PLAN.md §11/§18 names 3,890 records as the frozen submission corpus; this
 script supports that but defaults to a much smaller ``--count`` for fast
 local/CI runs (each missing jsonl-map/v1 leaf pays a real model-load cost,
 so a full 3,890-row 64-leaf run is a multi-minute proof, not a unit test).
@@ -97,7 +97,7 @@ def generate(count: int) -> list[dict[str, object]]:
     for i in range(count):
         row = _record(i)
         # Every record must be genuinely distinct, not a duplicate padded
-        # in to inflate the count (PLAN.md §11).
+        # in to inflate the count (docs/project/PLAN.md §11).
         assert row["text"] not in seen_text, f"generator produced a duplicate at index {i}"
         seen_text.add(str(row["text"]))
         rows.append(row)

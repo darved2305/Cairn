@@ -1,4 +1,4 @@
-"""lambda/reaper/handler.py — PROJECT.md §4.5, D7. Loaded by file path
+"""lambda/reaper/handler.py — docs/project/PROJECT.md §4.5, D7. Loaded by file path
 rather than a normal import: `lambda` is a reserved Python keyword, so
 `from lambda.reaper import handler` is a SyntaxError, not just an
 unusual-but-legal import. The reaper is deliberately independent of the

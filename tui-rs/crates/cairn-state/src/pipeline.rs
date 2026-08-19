@@ -1,4 +1,4 @@
-//! The five-stage DAG (`src/cairn/planner.py::STAGES`, PROJECT.md §4.3),
+//! The five-stage DAG (`src/cairn/planner.py::STAGES`, docs/project/PROJECT.md §4.3),
 //! as *current state* rather than as a scrolled-past log line. This is the
 //! panel the old TypeScript TUI structurally could not have: it kept one
 //! `ToolPanel` per stage in an append-only transcript, so the pipeline's

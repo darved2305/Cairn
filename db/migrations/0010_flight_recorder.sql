@@ -1,5 +1,5 @@
 -- 0010_flight_recorder.sql
--- Flight Recorder schema (CAIRN_9_DAY_WINNING_PLAN.md §20).
+-- Flight Recorder schema (docs/project/WINNING_PLAN_9_DAY.md §20).
 -- Each statement is independently idempotent so scripts/migrate.py can be
 -- killed between DDL statements and still converge.
 

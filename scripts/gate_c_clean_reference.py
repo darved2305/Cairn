@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Independent no-cache reference for Gate C — PLAN.md §18's "clean
+"""Independent no-cache reference for Gate C — docs/project/PLAN.md §18's "clean
 comparator": full recomputation of the exact frozen jsonl-map/v1
 adapter/mapper algebra with lookup disabled (no Cairn claim/generation/CAS
 machinery at all), so its output digest is a ground truth to compare

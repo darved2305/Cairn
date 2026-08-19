@@ -1,7 +1,7 @@
 //! Negative computational memory as a standing panel: the last
 //! `cairn memory search` result and the last `why-blocked` refusal.
 //!
-//! PROJECT.md §7.2 is explicit that a weak match must be *visually
+//! docs/project/PROJECT.md §7.2 is explicit that a weak match must be *visually
 //! distinct and labelled advisory* — it does not block anything. That
 //! rule lives here, as a real field on the match (`strength`), not as a
 //! formatting decision made at the last moment in the renderer.

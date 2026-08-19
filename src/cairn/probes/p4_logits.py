@@ -1,4 +1,4 @@
-"""P4 checkpoint_logit — PROJECT.md §4.4.
+"""P4 checkpoint_logit — docs/project/PROJECT.md §4.4.
 
 Proves: two checkpoints produce bitwise-identical logits on a fixed,
 deterministically-selected batch (`model.eval()`, `torch.inference_mode()`).

@@ -6,7 +6,7 @@
 # serializable takeover against the real claim protocol (D2), not a
 # simulated one.
 #
-# PROJECT.md §4.5 describes the full version of this proof against the
+# docs/project/PROJECT.md §4.5 describes the full version of this proof against the
 # `features` stage's fragment resume (D3's shard-level checkpointing) —
 # this is the claim-protocol layer that mechanism sits on top of; the
 # fragment-resume version needs the real workload wired into an

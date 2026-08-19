@@ -1,309 +1,699 @@
 # Cairn
 
-**Causal reuse memory for expensive compute.**
+**Persistent memory for expensive computation.**
 
-Cairn remembers what your compute already proved, refuses work that is already
-running or already known to fail, and recomputes only what a change can
-actually affect.
+Your expensive command already ran. Somewhere — on a laptop, in CI, on a Fargate
+task in another region. Cairn decides whether that result can be used, joins the
+run that is already in flight instead of starting a second one, takes over work
+whose owner disappeared, and repairs only the fragments a change could actually
+have touched. It reuses a result only when recorded evidence says it may.
 
-Built for the CockroachDB × AWS Hackathon. See [`PROJECT.md`](PROJECT.md) for
-the full design and [`PLAN.md`](PLAN.md) for the build schedule.
+<div align="center">
 
+[![CI](https://github.com/darved2305/Cairn/actions/workflows/ci.yml/badge.svg)](https://github.com/darved2305/Cairn/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12%2B-3776AB)](pyproject.toml)
+[![Rust](https://img.shields.io/badge/tui-rust%20%C2%B7%20ratatui-CE422B)](tui-rs)
+[![CockroachDB](https://img.shields.io/badge/CockroachDB-SERIALIZABLE-6933FF)](docs/architecture/SUBSTRATES.md)
+[![AWS](https://img.shields.io/badge/AWS-ECS%20%C2%B7%20S3%20%C2%B7%20Bedrock-FF9900)](infra)
+
+[Quickstart](#quickstart) · [How it works](#how-cairn-thinks-about-a-run) ·
+[Coordination](#distributed-coordination) · [CLI](#cli) ·
+[Support boundary](#support-boundary) · [Docs](docs/README.md)
+
+</div>
+
+---
+
+<div align="center">
+  <img src="docs/assets/diagrams/hero-architecture.svg" alt="Cairn system architecture: callers resolve to one execution identity; CockroachDB holds authority and memory; workers are disposable; S3 holds bytes" width="100%">
+</div>
 
 ---
 
 ## The problem
 
+Expensive compute gets repeated for reasons that have little to do with whether
+the output would actually be different.
+
 Every build cache you already use — Make, Bazel, DVC, Metaflow, W&B artifacts,
 Dagster asset caches, Docker layers — is a **declared-input hasher**. It keys on
-the declared inputs and invalidates when the key changes. That is correct,
+the inputs you declared and invalidates when that key changes. Correct,
 conservative, and lossy in one specific way:
 
 > A change to a declared input is treated as proof of invalidation. It is not.
 > It is only *evidence of possible* invalidation.
 
-| Change | Your cache | Reality |
-|---|---|---|
-| Docstring added to `train.py` | Invalidates the checkpoint | Cannot affect the checkpoint |
-| `logger.debug(...)` in the training loop | Invalidates the checkpoint | Logging has no return-value effect on the computation |
-| `eval.py` rewritten | Invalidates the whole pipeline, if keyed on a tree hash | Cannot affect the feature table or checkpoint — they are upstream |
-| `eval.batch_size` changed in `config.yaml` | Invalidates everything keyed on that file | Affects evaluation throughput only |
+And declared-input hashing says nothing at all about the other three ways
+compute gets wasted:
 
-Cairn answers a different question — *can this change reach this artifact, and
-if it can, does it alter it?* — using code structure, recorded causal edges, and
-a cheap deterministic probe that recomputes a bounded sample and compares
-canonical bytes.
-
-**The safety rule, enforced by the schema and not by convention:**
-
-> The model may propose reuse. Deterministic evidence must authorize it.
-
-`reuse_decisions.authorized_by` is one of `probe`, `structural`, or `identity`.
-There is no enum value for `model`, and a `CHECK` constraint makes a
-model-authorized reuse unrepresentable.
-
----
-
-## Quickstart
-
-Six commands from a clean clone to a running system:
-
-```bash
-uv sync                                     # 1. install the pinned environment
-./scripts/provision_cluster.sh              # 2. create the CockroachDB Cloud cluster, write .env
-make migrate                                # 3. apply db/migrations/*.sql
-make seed                                   # 4. seed negative memory with three REAL failures
-make console-build && make console          # 5. build + serve the console on :8000
-make demo                                   # 6. run the pipeline for real (cairn run --all)
-```
-
-`make check` (lint + typecheck + unit and property tests) needs no database.
-Integration tests need a real cluster — `scripts/provision_cluster.sh` for
-CockroachDB Cloud, or `./scripts/local_cluster.sh up` for a single node in
-Docker. **No test in this repo mocks the database for anything claiming to be
-an integration test**; see [`PLAN.md`](PLAN.md) §5.
-
-Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), Node 22+ (console and
-TUI only), and the [`ccloud`](https://www.cockroachlabs.com/docs/cockroachcloud/ccloud-get-started)
-CLI. AWS credentials with Bedrock model access are needed for embeddings and
-the LLM paths — without them, `CAIRN_NO_LLM=1` runs the deterministic-only
-path (see [Degradation](#degradation) below).
+| | What happens without Cairn |
+| --- | --- |
+| **Duplicate work** | Two machines start the same expensive job at the same time. Both finish. You paid twice. |
+| **Orphaned work** | The machine holding a half-finished job dies. Everything it did is thrown away. |
+| **Known failures** | A run that failed for a well-understood reason last week is attempted again, at full cost, before failing the same way. |
 
 ---
 
 ## What Cairn does
 
-### 1. Causal partial reuse
+<table>
+<tr>
+<td width="50%" valign="top">
 
-Walks the five-stage DAG in topological order and classifies each node
-independently against the recorded `artifact_inputs` edges of the previous
-successful run.
+### Remember completed computation
 
-```
-env → dataset → features → checkpoint → eval
-```
+A command's identity is derived from what it *actually read* — argv, cwd,
+declared environment, the immutable image digest, and the normalised syscall
+trace — not from a directory hash. When the evidence still supports it, the
+recorded result is restored instead of recomputed.
 
-| Change | env | dataset | features | checkpoint | eval |
-|---|---|---|---|---|---|
-| Comment + `logger.debug` in `train.py` | reuse | reuse | reuse | **reuse** | reuse |
-| `eval.metrics += ["macro_f1"]` | reuse | reuse | reuse | reuse | **recompute** |
-| `train.hidden_dim: 256 → 512` | reuse | reuse | **reuse** | **recompute** | recompute |
-| Embedding model → `all-mpnet-base-v2` | reuse | reuse | **recompute** | recompute | recompute |
-| `pip install` bumps `torch` | **recompute** | reuse | recompute | recompute | recompute |
+</td>
+<td width="50%" valign="top">
 
-Row three is the point: the expensive feature stage survives an architecture
-change, because the architecture is not in that stage's recorded read set.
+### Join work already running
 
-### 2. Transactional duplicate-work prevention
+Identical semantic work anywhere produces an identical work key. The first
+caller becomes the owner; every later caller becomes a subscriber on the same
+generation and adopts the result. No second execution starts.
 
-Identical semantic work on any machine in any region produces an identical
-`work_key`. A single `SERIALIZABLE` transaction acquires the claim; a monotonic
-fence rides every subsequent write. A resurrected worker with a stale fence
-updates zero rows, detects it, and exits without writing. The loser of a race
-does not error — it subscribes, watches the winner's progress, and adopts its
-artifact. There is no in-memory lock anywhere in Cairn.
+</td>
+</tr>
+<tr>
+<td valign="top">
 
-### 3. Negative computational memory
+### Recover ownership
 
-Every failed run writes a structured feature vector plus a 1024-d Titan
-embedding of a normalized failure summary. A new plan is checked against that
-memory **before any claim is taken**, and a blocking match halts the plan and
-proposes the remediation that actually worked.
+When a lease expires, the next contender takes the claim, increments the fence,
+and writes an `ownership_transfers` row — all in one transaction. The
+dispossessed owner's publication is then structurally rejected.
 
-| Tier | Condition | Action |
-|---|---|---|
-| `exact` | All causal structured features equal, same `framework_version`, same `instance_kind` | Refuse. Propose the recorded remediation. |
-| `strong_semantic` | Cosine ≤ 0.15, same stage + error class, ≥ 1 causal feature matching | Refuse, present evidence, require a modified plan or explicit `--override` |
-| `weak` | Cosine ≤ 0.35, no structured agreement beyond stage | **Advisory only. Never blocks.** Labelled as such next to every match. |
+</td>
+<td valign="top">
 
-Vector similarity alone never gates execution. That is the whole design.
+### Remember failures
 
-### 4. Evidence-backed reuse
+Every failed run writes a structured feature vector plus a 1024-d embedding of a
+normalised failure summary. A new plan is checked against that memory *before*
+any claim is taken.
 
-Six probe types, each with a stated guarantee **and** an explicit
-non-guarantee — see [`docs/PROBES.md`](docs/PROBES.md). Cairn never claims a
-probe proves full artifact equivalence, and the UI renders sample/population as
-a fraction, always.
+</td>
+</tr>
+<tr>
+<td valign="top">
 
-### 5. Crash recovery
+### Repair changed fragments
 
-Work is decomposed into fragments (`features` by shard, `checkpoint` by epoch),
-each written with its S3 URI and content hash in one fenced transaction. On
-worker death the reaper marks the lease takeover-eligible, the next contender
-bumps the fence, and the new owner validates each fragment against S3 and
-resumes from `max(index) + 1`.
+Under `jsonl-map/v1`, the input is bucketed into 64 stable leaves. One changed
+record invalidates one leaf. The other 63 are restored by digest, and the root
+republishes only after every current child leaf is re-verified.
 
----
+</td>
+<td valign="top">
 
-## Product surface
+### Refuse, and say why
 
-### CLI
+Missing evidence never becomes a cache hit. Every refusal carries the coverage
+state that caused it, the rule revision in force, and the decision row that
+recorded it.
 
-```
-cairn init                        # scaffold cairn.yaml, register stages
-cairn plan [stage]                # decisions + evidence, no execution, exit 0/1
-cairn run <stage> [--all]         # the agent loop
-cairn explain <artifact_id>       # full provenance + decision chain
-cairn memory search "<text>"      # query negative memory directly
-cairn memory why-blocked          # explain the last refusal
-cairn doctor                      # cluster (via ccloud), AWS, schema, index health
-cairn unquarantine <id> --reason "<text>"
-cairn claim-demo                  # drive a claim by hand, for the race demo
-```
-
-`cairn plan` exits non-zero on a `REFUSE_DOOMED`, which makes it usable as a CI
-gate: the pipeline stops before spending money on a run memory says will fail.
-
-### Console — the public demo URL
-
-`src/cairn/console/` (FastAPI) + `console/frontend/` (React + Vite +
-TypeScript + Tailwind), built into **one image serving one port**.
-
-Five panels, all reading live from CockroachDB:
-
-1. **Causal Graph** — the five-node DAG colour-coded by verdict; click any node
-   for the class that applied, the probe that ran, its sample/population
-   fraction, its runtime, and the `artifact_inputs` edges consulted.
-2. **Decision Ledger** — append-only, with actor, authority, and latency.
-3. **Claim Theatre** — live `work_claims`: owners, regions, fences, lease
-   countdowns, fragment progress, and the ownership-transfer audit trail.
-4. **Negative Memory** — searchable and tiered; weak matches are visually
-   distinct and labelled *advisory — does not block*.
-5. **Memory Inspector** — natural-language Q&A over the live cluster via the
-   CockroachDB Cloud MCP Server, **with the executed SQL shown under every
-   answer**.
-
-Plus a persistent **Savings** strip and judge mode: read-only, no login, seeded
-deterministic history on load, with **Run the demo** and **Reset demo**
-controls.
-
-```bash
-make console-build     # npm ci && npm run build in console/frontend
-make console           # uvicorn on :8000, serving API + SPA from one port
-make console-check     # tsc --noEmit
-```
-
-For frontend development, run `make console` in one terminal and
-`cd console/frontend && npm run dev` in another — Vite proxies `/api` to the
-FastAPI process, so both modes are same-origin and no environment-specific base
-URL is ever baked into the bundle.
-
-### Interactive terminal
-
-Running `cairn` with no subcommand and a real TTY launches an interactive TUI.
-The Python side never renders it directly: it writes a versioned NDJSON event
-stream at real state transitions (`src/cairn/obs/events.py`) which the TUI
-tails, and the TUI drives real work by spawning `cairn <subcommand>` itself.
-
-The TUI on this branch is the TypeScript implementation in `tui/`, built on
-[`@earendil-works/pi-tui`](https://github.com/earendil-works/pi) (MIT — see
-[`NOTICE`](NOTICE)). A Rust rewrite targeting a persistent multi-pane layout is
-in progress on a separate branch and is **not** part of this one; nothing below
-depends on it.
-
-```bash
-make tui         # cd tui && npm install && npm run build
-cairn            # launches it
-make tui-check   # tsc --noEmit
-make tui-test    # unit / render-width tests
-```
-
-Requires Node ≥ 22.19. If `tui/dist/index.js` is unbuilt or `node` is missing,
-`cairn` prints a clear error and exits — it never launches a broken TUI or
-silently falls back.
+</td>
+</tr>
+</table>
 
 ---
 
-## Deployment
+## Execution memory, live
 
-Terraform in [`infra/`](infra) provisions ECR, S3, two-region ECS Fargate,
-an ALB behind CloudFront, the Lambda reaper on a 30-second EventBridge
-schedule, CloudWatch logs/metrics/alarms, and least-privilege IAM.
+Bare `cairn` on a TTY launches a native terminal UI (Rust + `ratatui`) that
+keeps the pipeline, the live claim race, the decision ledger, and failure memory
+on screen at once. The Python side never renders it: it writes a versioned
+NDJSON event stream at real state transitions, and the TUI tails that and
+spawns real `cairn <subcommand>` calls of its own.
+
+```
+ cairn │ Searching causal memory │ 1/5 stages │ run 1111111… │ worker-a @ us-east-1 │ 1 live claim
+┏ 1 Pipeline (5) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃▸● env                   →  ○ dataset              →  ○ features              →  ○ checkpoint           →  ○ eval                 ┃
+┃  done                       planned                   planned                    planned                   planned               ┃
+┃  REUSE                                                unsound                                                                    ┃
+┃  cosmetic                                                                                                                        ┃
+┃  probe ok                                                                                                                        ┃
+┃  ████▏░ 69%                                                                                                                      ┃
+┃  0ms                                                                                                                             ┃
+┃  art-env                                                                                                                         ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┌ 2 Claims (1) ─────────────────────────────────────────────────────────┐┌ 3 Ledger (1) ───────────────────────────────────────────┐
+│features  [contended]  wk-features                                     ││REUSE                env        reused                   │
+│  owner  worker-b @ eu-west-1 #3                                       ││  by probe  cosmetic  12ms                               │
+│  waiting worker-a @ us-east-1                                         ││  probe passed at tolerance                              │
+│  lease  ████████████████████████ 45.0s                                ││                                                         │
+│  beat   next in 10.0s   1 beats                                       ││                                                         │
+└───────────────────────────────────────────────────────────────────────┘└─────────────────────────────────────────────────────────┘
+┌ 4 Memory (2) ─────────────────────────────────────────────────────────┐┌ 5 Log (9) ──────────────────────────────────────────────┐
+│"cuda oom"  2 match(es), 1 verified  stage checkpoint                  ││12:04:31   Run started · target eval · us-east-1         │
+│                                                                       ││12:04:31   Planned 5 stage(s) · structurally unsound: fea│
+│◆ OutOfMemoryError  checkpoint   d=0.041                               ││12:04:31   stage env started                             │
+│  batch 64 OOMs on g5.xlarge                                           ││12:04:31   probe sampled_equivalence · 88/128 · passed   │
+│  verified remediation   wasted 1m31s                                  ││12:04:31   Reuse env · reused · probe passed at tolerance │
+│                                                                       ││12:04:31   stage env REUSE ·                             │
+│· ValueError  checkpoint   d=0.312                                     ││12:04:31   claim.contended features · contended · worker-│
+│  shape mismatch                                                       ││12:04:31   claim.heartbeat wk-features · contended · work│
+│  advisory — does not block   wasted 400ms                             ││12:04:31   memory search · 2 match(es), 1 with verified r│
+└───────────────────────────────────────────────────────────────────────┘└─────────────────────────────────────────────────────────┘
+ / command  ? help  m memory search  q quit
+ Pipeline j/k stage · enter explain artifact · r run stage · R run all · p plan  │  1-5/tab panel · z zoom · t theme · ? keys
+```
+
+> This is the binary's own renderer, not a drawing of it. The full 132×38 frame
+> lives at [`docs/assets/tui/tui-overview.txt`](docs/assets/tui/tui-overview.txt)
+> and is regenerated by the `layout_snapshot` test in
+> [`tui-rs/crates/cairn-tui/src/draw.rs`](tui-rs/crates/cairn-tui/src/draw.rs),
+> driven through the same event payloads `src/cairn/obs/events.py` emits. Note
+> the memory panel: the weak match is labelled *advisory — does not block*,
+> because it is.
+
+---
+
+## The core principle
+
+> ### Models may propose. Deterministic evidence authorizes.
+
+<div align="center">
+  <img src="docs/assets/diagrams/reuse-authorization.svg" alt="A proposal enters; identity, structural, or probe evidence decides; reuse or run" width="100%">
+</div>
+
+`reuse_decisions.authorized_by` accepts exactly three values — `identity`,
+`structural`, `probe` — and `db/migrations/0005_decisions.sql` carries a `CHECK`
+constraint over them. **There is no enum value `model`.** A model-authorized
+reuse is not representable in the schema, and
+`tests/integration/test_decisions.py` proves the constraint still rejects a raw
+`INSERT` that tries to bypass the Python layer.
+
+| Evidence | What it establishes |
+| --- | --- |
+| `identity` | The same semantic work key over a `VALIDATED` trace observation. |
+| `structural` | A declared adapter contract, or a proof that the change cannot reach this artifact through the recorded `artifact_inputs` edges. |
+| `probe` | A bounded, deterministically-selected sample recomputed and compared as canonical bytes. Six probe types, each with a stated **non**-guarantee — see [`docs/internals/PROBES.md`](docs/internals/PROBES.md). |
+
+The complement matters just as much. Coverage is what decides whether reuse is
+even on the table, and unknown always means run:
+
+<div align="center">
+  <img src="docs/assets/diagrams/coverage-states.svg" alt="Two coverage states may authorize reuse; seven force a run" width="88%">
+</div>
+
+---
+
+## How Cairn thinks about a run
+
+<div align="center">
+  <img src="docs/assets/diagrams/agent-loop.svg" alt="perceive, recall, decide, act, learn — and the data each stage touches" width="100%">
+</div>
+
+<details>
+<summary><b>What each stage actually reads and writes</b></summary>
+
+<br>
+
+| Stage | Reads | Writes |
+| --- | --- | --- |
+| **perceive** | argv, cwd, declared environment names, the OCI image digest, and the normalised `strace -f` process-tree trace | `execution_specs`, `trace_contents`, `trace_resources` |
+| **recall** | prior observations for this compatibility selector, the current generation head, the published derivation, remembered failures | — |
+| **decide** | coverage state, observation lifecycle, rule revision, failure tier | the chosen `PlanAction` |
+| **act** | the claim it acquired, and the fence it was handed | fragment commits, blobs under `cas/sha256/<digest>` |
+| **learn** | the outcome | `derivations`, `reuse_decisions`, `failure_signatures`, `remediations` |
+
+The planner's vocabulary is a closed enum in `src/cairn/flight/types.py`:
+`RESTORE`, `SUBSCRIBE`, `TAKE_OVER`, `REPAIR`, `RUN_LOCAL`, `RUN_ECS`,
+`RUN_SHADOW_LEARN`, `RUN_ISOLATED_QUALIFICATION`, `REFUSE_REUSE`,
+`REPLAN_FAILURE`.
+
+</details>
+
+---
+
+## Distributed coordination
+
+This is the part that cannot be faked. **There is no in-memory lock anywhere in
+Cairn.** Every ownership decision is one `SERIALIZABLE` transaction against
+CockroachDB, replayed whole on a `40001` retry
+([`src/cairn/db/txn.py`](src/cairn/db/txn.py)).
+
+<div align="center">
+  <img src="docs/assets/diagrams/claim-race.svg" alt="Two machines request the same work key; one owns, one subscribes; the owner dies; the lease expires; ownership transfers and the fence increments; the stale owner's publication is rejected" width="92%">
+</div>
+
+Walking the diagram against
+[`src/cairn/db/flight.py`](src/cairn/db/flight.py):
+
+1. `open_generation` reads the work head `FOR UPDATE`, creating generation 1 if
+   this work has never been seen.
+2. `_acquire_claim_on_cursor` attempts `INSERT ... ON CONFLICT DO NOTHING`. The
+   caller that inserts is the **owner**, at fence 1.
+3. A second caller finds the row, sees a live lease, and becomes a
+   **subscriber** — it registers interest and adopts the owner's result rather
+   than starting a second execution.
+4. If the row's `lease_expires_at` has passed, or its state is terminal, the
+   contender takes it: `state='CLAIMED'`, `fence = fence + 1`, and an
+   `ownership_transfers` row recording `{from_owner, to_owner, from_fence,
+   to_fence, reason}` — all inside the same transaction.
+5. A published result already on the head short-circuits everything to
+   **`RESTORE`**.
+
+### Fencing
+
+<div align="center">
+  <img src="docs/assets/diagrams/fencing.svg" alt="An old owner at fence 7 is rejected; the new owner at fence 8 commits" width="92%">
+</div>
+
+A lease alone does not solve this. A lease can expire while the old owner is
+still alive, still holding a finished result in memory, and still perfectly
+willing to write it. Cairn closes that window at the write, not at the clock:
+every fenced write re-reads the live claim row `FOR UPDATE` and compares
+`{owner_id, run_id, fence, state}` inside the same transaction. A mismatch
+returns `PublishOutcome.REJECTED_FENCE` and updates zero rows.
+
+The same check guards `commit_microchunk` in
+[`src/cairn/db/flight.py`](src/cairn/db/flight.py) and every fragment write in
+[`src/cairn/db/fragments.py`](src/cairn/db/fragments.py), so a dispossessed
+owner cannot even leave partial state behind.
+`tests/integration/test_stale_owner_fragment.py` is the adversarial proof.
+
+### Authority plane vs data plane
+
+<div align="center">
+  <img src="docs/assets/diagrams/authority-data-plane.svg" alt="CockroachDB decides; workers are disposable; S3 holds immutable bytes" width="88%">
+</div>
+
+---
+
+## Fragment repair
+
+<div align="center">
+  <img src="docs/assets/diagrams/fragment-repair.svg" alt="One changed record invalidates one of 64 stable leaves; the rest are restored by digest" width="100%">
+</div>
+
+Under the bundled `jsonl-map/v1` adapter contract
+([`src/cairn/adapters/jsonl_map.py`](src/cairn/adapters/jsonl_map.py)):
+
+- Each record's bucket is `hash(canonical typed id)` across a fixed 64
+  partitions, so `7` and `"7"` are different ids by construction and row
+  placement is stable across machines.
+- Each leaf is claimed, executed, and published independently, checkpointed
+  every 8 records through the same fenced `commit_microchunk` primitive.
+- Leaves carry `Authority.STRUCTURAL` — a declared adapter contract, explicitly
+  *not* an empirical trace.
+- The root publishes only after every current child leaf is re-verified in the
+  same transaction that writes it.
+
+**Support boundary, stated plainly:** this is not generic decomposition of
+arbitrary programs. It applies to the bundled JSONL map/reduce contract, whose
+partitioner, reducer, and verifier digests are part of the identity. Arbitrary
+opaque commands stay at `SHADOW_UNQUALIFIED` coverage and are never fragmented.
+
+---
+
+## Failure memory
+
+<div align="center">
+  <img src="docs/assets/diagrams/failure-memory.svg" alt="Structured match plus embedding search yields three tiers; only two of them can block" width="100%">
+</div>
+
+Two mechanisms, deliberately kept separate:
+
+- **Structured matching** compares causal features, stage, error class,
+  framework version, and instance kind. This is what can block.
+- **Vector similarity** (1024-d Amazon Titan embeddings of a normalised failure
+  summary) *retrieves candidates*. It never authorizes a behaviour change on its
+  own.
+
+`tier()` in [`src/cairn/db/memory.py`](src/cairn/db/memory.py) implements this
+exactly, and `BLOCKING_TIERS` is a frozen set containing only `exact` and
+`strong_semantic`. `weak` is advisory by construction — there is no code path in
+that module that returns a blocking verdict for it, and the UI labels every weak
+match *advisory — does not block*.
+
+Both blocking tiers additionally require a **recorded, succeeded remediation**,
+because that is the only thing that establishes which structured features were
+actually causal for a signature. Without that provenance, cosine distance alone
+can never lift a match past `weak`.
+
+### When a reuse turns out to be wrong
+
+<div align="center">
+  <img src="docs/assets/diagrams/contradiction-quarantine.svg" alt="Contradiction, quarantine, transitive downstream quarantine, rule tightening, and the audited manual exit" width="100%">
+</div>
+
+`contradict_and_tighten` advances the reuse rule head to a tightened revision.
+`publish_derivation` then rejects any publish carrying the superseded revision
+with `STALE_AUTHORITY`. Quarantine walks downstream through
+`artifact_inputs.input_kind = 'upstream'` and is one-way; the only exit is
+`cairn unquarantine <id> --reason "<text>"`, and the reason is recorded.
+
+---
+
+## Progressive trust
+
+<div align="center">
+  <img src="docs/assets/diagrams/progressive-trust.svg" alt="scout, shadow, qualify, deterministic-file/v1, remote ecs, jsonl-map/v1" width="100%">
+</div>
+
+You do not have to trust Cairn on day one, and nothing pushes you further than
+you want to go. `shadow` is the default contract, and it never reuses anything.
+
+---
+
+## Quickstart
+
+<div align="center">
+  <img src="docs/assets/diagrams/run-lifecycle.svg" alt="command, observe, recall, decide, act, receipt" width="100%">
+</div>
+
+```bash
+git clone https://github.com/darved2305/Cairn && cd Cairn
+uv sync                                     # pinned Python environment
+```
+
+Then pick a cluster. Either works; the schema and the semantics are the same.
+
+```bash
+# A. Single-node CockroachDB in Docker — no cloud account needed
+./scripts/local_cluster.sh up               # prints the CAIRN_DATABASE_URL to export
+
+# B. CockroachDB Cloud — needs the `ccloud` CLI, writes .env for you
+./scripts/provision_cluster.sh
+```
+
+```bash
+make migrate                                # apply db/migrations/*, in order
+cairn doctor                                # database, schema, vector index, AWS
+cairn plan                                  # deterministic work keys, no execution
+```
+
+`cairn plan` against a live cluster, verbatim:
+
+```console
+$ cairn plan
+STAGE       WORK KEY                                                          INPUTS
+env         9102236e6bfe4c9a6674f5576a7cb5e966133dbfb53bcbd2e31e2af6576d7514  0 config / 10 code (unsound)
+            escape hatches: importlib.metadata
+dataset     15229e4f9cd128e1693d0ca873fd0e1362c21e1509bf06597a9b938394607d88  1 config / 16 code (sound, provisional upstream)
+features    135c446fc832578caaa26b6ef6aaa841d3f931df1a3f9dd5ef78db9436e7ab99  5 config / 25 code (sound, provisional upstream)
+checkpoint  1ac64a48bc33935ba9b32fbda3ebe7111eabcfe393921e1d6f2fa8018c02579e  6 config / 27 code (sound, provisional upstream)
+eval        6d51f301ba3519087b2658e95978632e74d73f34e53edae53599293ba4286b68  1 config / 22 code (sound, provisional upstream)
+```
+
+Note `env`'s honesty: `unsound`, with the escape hatch that caused it named. A
+stage whose reachability analysis cannot be trusted does not get to claim it can.
+
+Wrapping a real command starts in `shadow`, which never reuses. Here it is on
+Windows, where Cairn has no portable identity and says so rather than guessing
+(the `owner` line, `user/host`, is elided):
+
+```console
+$ cairn exec --contract shadow --output-file .cairn/out/demo.bin -- python --version
+Python 3.13.12
+action     RUN_SHADOW_LEARN
+coverage   INCOMPLETE_PLATFORM
+reasons    not_linux; native_windows_no_strace; incomplete_platform; not_linux_or_unpinned_image
+child_exit 0
+```
+
+The child's exit status passes through unchanged, so `cairn exec` stays
+transparent to whatever script wraps it.
+
+Then graduate to a named contract when you want reuse:
+
+```bash
+uv run python scripts/cairnbench_generate.py --output data/cairnbench.jsonl
+
+cairn exec --contract jsonl-map/v1 \
+    --input-file data/cairnbench.jsonl \
+    --id-field id \
+    --partitions 64 \
+    --output-file out/features.jsonl \
+    --oci-image "$CAIRN_IMAGE_DIGEST" \
+    -- python /workspace/examples/embed_mapper.py
+```
+
+Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), Docker or the
+[`ccloud`](https://www.cockroachlabs.com/docs/cockroachcloud/ccloud-get-started)
+CLI, Node 22+ for the console, and Rust 1.82+ for the TUI. AWS credentials with
+Bedrock model access enable embeddings and the LLM paths; without them,
+`CAIRN_NO_LLM=1` runs the deterministic-only path.
+
+---
+
+## CLI
+
+| Command | Purpose |
+| --- | --- |
+| `cairn` | Launch the interactive terminal (TTY only; prints help otherwise) |
+| `cairn scout -- <cmd>` | Trace a command under the Flight Recorder collector. Evidence only, never reuse |
+| `cairn exec -- <cmd>` | Plan, then restore / subscribe / take over / repair / run under a named contract |
+| `cairn plan [stage]` | Deterministic work keys and reachability for the five-stage pipeline. Exits non-zero on a doomed plan |
+| `cairn run <stage> [--all]` | The agent loop against a live cluster. Exits 2 on refusal, 3 on escalation |
+| `cairn receipt --run <id> [--verify]` | Canonical receipt. `--verify` re-fetches every blob from S3 and rehashes it |
+| `cairn explain <artifact_id>` | Provenance and the decision chain for a five-stage artifact |
+| `cairn explain --run\|--work\|--artifact` | The Flight leaf path: bucket → slice digest → leaf action → owner/fence → root verifier |
+| `cairn memory search "<text>"` | Query failure memory directly, with tiers shown |
+| `cairn memory why-blocked` | Explain the most recent refusal |
+| `cairn unquarantine <id> --reason` | The audited one-way exit from quarantine |
+| `cairn claim-demo` | Drive the claim protocol by hand — what ECS RunTask invokes for the cross-region race |
+| `cairn doctor [--cloud] [--json]` | Database, schema, vector index, `ccloud` topology, AWS credentials |
+| `cairn init` | Scaffold a `cairn.yaml` stage registry |
+
+`cairn plan` and `cairn run` exit non-zero on a refusal, which makes either one
+usable as a CI gate: the pipeline stops before spending money on a run that
+memory says will fail.
+
+---
+
+## Cloud architecture
+
+<div align="center">
+  <img src="docs/assets/diagrams/aws-architecture.svg" alt="CloudFront and ALB in front of an ECS console service; two Fargate worker regions; a Lambda reaper on EventBridge; CockroachDB Cloud, S3, Bedrock, ECR and Secrets Manager" width="100%">
+</div>
+
+Terraform in [`infra/`](infra) provisions exactly what is drawn above: ECR with
+a lifecycle policy, an encrypted and versioned S3 bucket with public access
+blocked, two-region ECS Fargate, an ALB behind CloudFront, the Lambda reaper on
+a 30-second EventBridge schedule, four CloudWatch alarms, and per-task
+least-privilege IAM.
 
 ```bash
 cd infra && terraform init && terraform plan     # review before applying
 ```
 
 `terraform apply` creates resources that bill by the hour. Read
-[`docs/COST.md`](docs/COST.md) first — it explains why there is no NAT Gateway
-anywhere, and what `make teardown` removes.
+[`docs/operations/COST.md`](docs/operations/COST.md) first — it explains why
+there is no NAT Gateway anywhere, and what teardown removes.
 
-Two deployment follow-ups are prepared but deliberately **not** applied, because
-each is a real change to live infrastructure:
+### Why CockroachDB is load-bearing
 
-- **Read-only console role.** `db/migrations/0008_console_readonly_role.sql`
-  creates a `SELECT`-only role; `scripts/provision_console_role.py` creates the
-  login user, prints its connection URL, and *verifies* the result by
-  reconnecting as that user and asserting a write is rejected. `infra/ecs.tf`
-  carries the step-by-step block for wiring it as the console's own Secrets
-  Manager secret. Until that runs, the console shares the workers' credential
-  and read-only is enforced only by `console/queries.py` containing nothing but
-  SELECTs.
-- **Cost rates.** `db/migrations/0007_cost_rates_seed.sql` seeds published AWS
-  Fargate on-demand rates. Until applied, `/api/savings` returns `cost: null`
-  with the reason — which is the correct behaviour, not a bug.
+Not "Cairn stores data in CockroachDB." Remove it and the product stops
+existing:
 
----
+- **Claims are decided by the database, not by a process.** `INSERT ... ON
+  CONFLICT DO NOTHING` inside a `SERIALIZABLE` transaction *is* the win/loss
+  decision. There is no lock service, no leader, and no in-memory mutex.
+- **Retries are handled at the right granularity.** CockroachDB surfaces
+  conflicts as `40001`, and `in_txn` replays the *whole* closure — which is why
+  every closure in `src/cairn/db/` is a pure function of its arguments, with no
+  S3 calls and no event emission inside.
+- **Fences, leases, and transfers are rows.** Ownership history is queryable,
+  not reconstructed from logs.
+- **Reachability has exactly one writer.** `publish_derivation` is the only
+  function permitted to point a generation at a derivation, and it verifies the
+  claim, the observation lifecycle, the rule revision, and every child leaf
+  before it does.
+- **Failure memory and vector search live next to the coordination state.** One
+  `VECTOR(1024)` column, one query path, one consistency story — no separate
+  vector service to keep in sync with the claims table.
+- **Multi-region topology is authority, not configuration.** `ccloud cluster
+  info` regions are the *only* thing allowed to authorize an ECS routing
+  decision; an unknown, stale, or non-AWS region set fails closed rather than
+  inventing a region from the environment.
 
-## Degradation
-
-Cairn's correctness path never depends on the LLM.
-
-| Unavailable | What still works | What degrades |
-|---|---|---|
-| Bedrock entirely (`CAIRN_NO_LLM=1`) | `exact` matches, all structural classes, all six probes, the whole claim protocol | `strong_semantic`/`weak` matching (no embeddings); ambiguous-change classification and remediation authoring fall back to rules; the Memory Inspector reports itself unavailable rather than answering from the schema alone |
-| Vector index | Everything | `search` falls back to exact brute-force cosine via `<=>` — correct, just slower |
-| CockroachDB Cloud MCP key | Every panel, including the Inspector | The Inspector's four tools run over pgwire instead, and the response says so — an answer produced that way never claims to have come from the MCP server |
-
-Every one of those degradations is surfaced in the UI with the real underlying
-cause. A 503 from the Memory Inspector prints the actual IAM denial, because
-"Bedrock model access is not enabled in this account" is worth far more than
-"something went wrong".
+[`docs/architecture/SUBSTRATES.md`](docs/architecture/SUBSTRATES.md) covers each
+CockroachDB and AWS capability and what breaks without it.
 
 ---
 
-## Measurement honesty
+## The record a run leaves behind
 
-The UI shows only measured values, plus clearly-labelled arithmetic on them.
+<div align="center">
+  <img src="docs/assets/diagrams/execution-receipt.svg" alt="Inputs become one derivation row, readable later through receipt, explain, and the console" width="100%">
+</div>
 
-- **Measured** — stage and probe wall-clock, artifact bytes, S3 keys,
-  vCPU/memory allocation, region, stages reused/recomputed, duplicate launches
-  prevented, failures avoided, fragments resumed.
-- **Derived, labelled `rate-based`** — cost, computed from the user-editable
-  `cost_rates` table, rendering its own formula inline:
-  `95.2 s × $0.0000274/s = $0.0026`.
-- **Never shown** — an invented dollar figure presented as an observation.
-  There is no code path that produces one. When no rate row exists, the API
-  returns `cost: null` with the reason and the UI prints the reason.
+The console (`src/cairn/console/` + `console/frontend/`, FastAPI + React built
+into one image serving one port) reads all of this live from CockroachDB across
+five panels — Causal Graph, Decision Ledger, Claim Theatre, Negative Memory, and
+a Memory Inspector that answers natural-language questions over the live cluster
+via the CockroachDB Cloud MCP Server **with the executed SQL shown under every
+answer**. Every read route is backed by exactly one plain `SELECT` in
+`console/queries.py`.
+
+```bash
+make console-build && make console      # http://localhost:8000
+```
 
 ---
 
-## Repository layout
+## Project structure
 
-| Path | What's in it |
-|---|---|
-| `src/cairn/agent/` | The nine-action agent loop |
-| `src/cairn/db/` | Claims, decisions, memory, graph, fragments, and the SERIALIZABLE retry wrapper |
-| `src/cairn/fingerprint/` | AST canonicalization, reachability, work-key composition |
-| `src/cairn/probes/` | P1–P6 |
-| `src/cairn/workload/` | The real five-stage pipeline |
-| `src/cairn/console/` | Read-only API, MCP/SQL tools, Memory Inspector agent, demo replay |
-| `console/frontend/` | The React SPA |
-| `db/migrations/` | Forward-only schema |
-| `infra/` | Terraform |
-| `tests/` | `unit/`, `property/` (Hypothesis), `integration/` (real cluster, no mocks) |
-| `docs/` | [Architecture](docs/ARCHITECTURE.md) · [Tools](docs/TOOLS.md) · [Probes](docs/PROBES.md) · [Cost](docs/COST.md) · [Skills usage](docs/SKILLS_USAGE.md) |
+```text
+cairn/
+├── src/cairn/          # CLI, flight recorder, trace collector, agent loop, probes, db, console API
+├── tui-rs/             # the native terminal UI (Rust workspace, ratatui)
+├── console/frontend/   # the React SPA
+├── db/migrations/      # forward-only schema
+├── infra/              # Terraform
+├── lambda/reaper/      # the lease reaper
+├── scripts/            # provisioning, migrations, race harnesses, gate scripts
+├── examples/           # the project-controlled mapper used by the contracts
+├── tests/              # unit · property (Hypothesis) · trace · integration (no mocks)
+└── docs/               # architecture, internals, operations, security, project record
+```
+
+<details>
+<summary><b>Internal component map</b></summary>
+
+<br>
+
+<div align="center">
+  <img src="docs/assets/diagrams/component-map.svg" alt="Runtime relationships between the CLI, trace, fingerprint, flight, agent, probes, db, storage, and the TUI" width="100%">
+</div>
+
+</details>
+
+---
+
+## Tests and evidence
+
+```bash
+make check                 # ruff check + ruff format --check + mypy --strict + unit/property tests
+make test-integration      # needs CAIRN_DATABASE_URL — a real cluster, never a mock
+make tui-test              # cargo test --workspace
+make console-check         # tsc --noEmit
+```
+
+**No test in this repository that claims to be an integration test mocks the
+database.** The concurrency tests in particular are only meaningful against a
+real `SERIALIZABLE` engine; running them against a stub would produce a green
+check that means nothing. `.github/workflows/ci.yml` therefore *skips* the
+integration job with a stated reason until a real cluster credential exists,
+rather than faking a pass.
+
+The tests worth reading, because each one proves a claim on this page:
+
+| Test | What it establishes |
+| --- | --- |
+| `tests/integration/test_claims.py` | Contention, dispossessed writes, and safe takeover |
+| `tests/integration/test_race_50.py` | At most one committed derivation survives a concurrent race |
+| `tests/integration/test_stale_owner_fragment.py` | A dispossessed owner cannot record a fragment or commit a microchunk |
+| `tests/integration/test_decisions.py` | The `authorized_by` `CHECK` rejects a raw `INSERT`, not just the Python layer |
+| `tests/integration/test_qualification.py` | `CANDIDATE → VALIDATED` promotion, and what refuses to promote |
+| `tests/integration/test_contradiction_tightening.py` | A tightened rule revision refuses the shortcut it used to allow |
+| `tests/property/test_workkey.py`, `test_flight_identity.py` | Identity digests are stable and order-independent |
+| `tests/property/test_jsonl_leaves.py` | Leaf bucketing and reconstruction, over generated inputs |
+| `tests/trace/test_c2_matrix.py` | The tracer conformance matrix |
+
+---
+
+## Support boundary
+
+Cairn is `0.1.0`. Where the guarantees stop, stated exactly:
+
+- **Linux-first.** Full trace coverage requires a Linux process tree under
+  `strace -f`. Native Windows runs report `INCOMPLETE_PLATFORM` and have no
+  portable identity.
+- **The kernel collector is the coverage boundary.** The Python audit-hook
+  companion may add resource rows and refine labels; it can never upgrade
+  `coverage_state`, because audit hooks are not a sandbox boundary.
+- **Opaque commands are frozen at `SHADOW_UNQUALIFIED`.** Observation alone
+  never authorizes generic verified reuse. Reuse requires a named contract.
+- **`deterministic-file/v1` is a user assertion.** Its `COMPLETE_DECLARED`
+  coverage means *you declared this pure*, conspicuously not *tracing proved it*.
+- **One regular output file** per `cairn exec` in v0.1. Restore is atomic for a
+  regular file on one filesystem; directory-replace semantics are not claimed.
+- **Fragment repair is contract-scoped.** It applies to `jsonl-map/v1`, not to
+  arbitrary application code.
+- **Network is checked, not enforced.** `--network deny` is a declared property
+  the tracer verifies. Socket activity without a stable adapter yields
+  `INCOMPLETE_NETWORK` and a non-reusable result; it does not block traffic.
+- **Time, randomness, devices, and unversioned network or database state** are
+  not modelled as inputs. A command that depends on them will not qualify.
+- **Probes prove sampled equality, not artifact equivalence.** Every probe
+  records `sample_spec`, `population_size`, and `sample_size` so the UI can show
+  a fraction rather than imply a proof.
+- **Namespaces are a data boundary, not yet an authentication boundary.** The
+  `namespace_principals` schema exists; the OIDC token exchange that would
+  enforce it does not. A caller holding `CAIRN_DATABASE_URL` can address any
+  namespace. See
+  [`docs/security/SECURITY_MODEL.md`](docs/security/SECURITY_MODEL.md) §3.
+- **On a single-node local cluster, the vector index is unavailable.** Search
+  falls back to exact brute-force cosine — correct, just slower — and says so.
+
+---
+
+## Roadmap
+
+- OIDC → `namespace_principals` token exchange, so namespaces become an
+  authentication boundary rather than a data boundary.
+- Multi-file and directory output contracts.
+- Additional adapter contracts beyond `jsonl-map/v1`.
+- eBPF collection as an alternative to `strace -f`, for lower tracing overhead.
+- Console read-only role wired through its own Secrets Manager secret in the
+  deployed stack.
+
+---
+
+## Documentation
+
+| Document | What it covers |
+| --- | --- |
+| [Architecture overview](docs/architecture/OVERVIEW.md) | System design, component boundaries, and the invariants across them |
+| [Substrates](docs/architecture/SUBSTRATES.md) | Every CockroachDB and AWS capability, and what breaks without it |
+| [Probes](docs/internals/PROBES.md) | Each probe's guarantee **and** its explicit non-guarantee |
+| [Security model](docs/security/SECURITY_MODEL.md) | Where each boundary is enforced, and what is deliberately not defended |
+| [Cost](docs/operations/COST.md) | Spend guardrails and the emergency stop |
+| [Project](docs/project/PROJECT.md) | The authoritative design, including the full data model |
+| [Plan](docs/project/PLAN.md) · [Flight Recorder plan](docs/project/WINNING_PLAN_9_DAY.md) | Implementation history and scope decisions |
+| [Validation log](docs/project/VALIDATION_2026-08-09.md) | Adversarial end-to-end validation against real infrastructure |
+
+Vulnerability reports and credential-handling practice: [`SECURITY.md`](SECURITY.md).
+
+---
 
 ## Non-goals
 
 Cairn is not compliance software, a policy engine, a CI/CD replacement, a
-generic observability dashboard, a chatbot, a RAG app, a code-review bot, or a
+generic observability dashboard, a chatbot, a RAG application, or a
 static-analysis product. The static analysis here exists solely to answer
 reachability for reuse decisions; it emits no diagnostics and no report. Cairn
 does not replace your orchestrator — it plugs into Make, GitHub Actions, or
 Dagster — and it does not claim to prove full artifact equivalence.
 
-## License
+It is also not a sandbox. Cairn observes the command you give it; it does not
+confine it.
+
+---
+
+## License and credits
 
 Apache-2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+
+Built on CockroachDB, Amazon Web Services (ECS Fargate, S3, ECR, Lambda,
+EventBridge, CloudFront, CloudWatch, Secrets Manager, Bedrock), and open source
+including psycopg, Typer, FastAPI, React, Vite, PyTorch, sentence-transformers,
+Hypothesis, and ratatui. Embeddings are Amazon Titan Text Embeddings v2;
+classification uses Anthropic Claude via Bedrock. The evaluation corpus and its
+provenance are documented in [`data/DATASET.md`](data/DATASET.md).
+
+The CockroachDB [Agent Skills](https://github.com/cockroachlabs/cockroachdb-skills)
+(Apache-2.0) are vendored under `.agents/skills/` and materially changed this
+codebase — whole-transaction retry scope, `FOR UPDATE` contention handling, and
+covering-index design. What each skill changed, with file references, is in
+[`docs/project/SKILLS_USAGE.md`](docs/project/SKILLS_USAGE.md).

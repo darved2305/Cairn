@@ -1,5 +1,5 @@
 """Transactional persistence for the decision ledger and probe evidence —
-D5, PROJECT.md §3.1 and §6.4.
+D5, docs/project/PROJECT.md §3.1 and §6.4.
 
 "The model may propose reuse. Deterministic evidence must authorize it."
 `db/migrations/0005_decisions.sql`'s CHECK constraint makes a
@@ -26,7 +26,7 @@ from cairn.probes.base import ProbeResult
 
 AUTHORIZED_BY = frozenset({"probe", "structural", "identity"})
 PROPOSED_BY = frozenset({"rule", "model"})
-# The nine actions, PROJECT.md §6.4.
+# The nine actions, docs/project/PROJECT.md §6.4.
 ACTIONS = frozenset(
     {
         "REUSE",
@@ -77,7 +77,7 @@ class ReuseDecision:
             raise InvalidDecision(
                 "verdict='reuse' requires authorized_by in "
                 f"{sorted(AUTHORIZED_BY)} — the model may propose reuse, "
-                "deterministic evidence must authorize it (PROJECT.md §3.1)"
+                "deterministic evidence must authorize it (docs/project/PROJECT.md §3.1)"
             )
         if self.latency_ms < 0:
             raise InvalidDecision("latency_ms must be non-negative")
@@ -287,7 +287,7 @@ def decisions_for_artifact(pool: ConnectionPool, artifact_id: str) -> list[Decis
 
 def latest_refusal(pool: ConnectionPool) -> DecisionRecord | None:
     """The most recent `verdict='refused'` decision across the whole
-    ledger — `cairn memory why-blocked`'s data source (PROJECT.md §7.1)."""
+    ledger — `cairn memory why-blocked`'s data source (docs/project/PROJECT.md §7.1)."""
 
     def _tx(cur: psycopg.Cursor) -> DecisionRecord | None:
         cur.execute(
@@ -311,7 +311,7 @@ def record_decision_with_probe(
     artifact_id: str | None = None,
 ) -> tuple[uuid.UUID, uuid.UUID]:
     """Write the probe's evidence and the decision that cites it in one
-    transaction — the common case, and the one PROJECT.md §3.1 cares
+    transaction — the common case, and the one docs/project/PROJECT.md §3.1 cares
     about: a decision must never be visible without its authorizing
     evidence already being visible too."""
 

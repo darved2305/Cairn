@@ -1,6 +1,6 @@
 -- 0001_init.sql
 -- Identity, causal graph roots, and the distributed claim table.
--- Forward-only. See PROJECT.md §11 for the authoritative full schema
+-- Forward-only. See docs/project/PROJECT.md §11 for the authoritative full schema
 -- (later migrations add code_units/code_edges, failure_signatures,
 -- remediations, reuse_decisions, probe_runs, contradictions, cost_rates).
 
@@ -40,7 +40,7 @@ CREATE TABLE artifact_inputs (
 );
 
 -- Distributed mutual exclusion for expensive stages. See db/claims.py (D2)
--- and PROJECT.md §4.2 for the full acquire/heartbeat/takeover protocol this
+-- and docs/project/PROJECT.md §4.2 for the full acquire/heartbeat/takeover protocol this
 -- table is designed around: fenced writes, lease expiry, safe takeover.
 CREATE TABLE work_claims (
   work_key          STRING PRIMARY KEY,

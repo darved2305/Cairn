@@ -1,6 +1,6 @@
 """Content-addressed artifact storage and fragment IO.
 
-PROJECT.md §4.2 idempotency: completion writes to a content-addressed S3
+docs/project/PROJECT.md §4.2 idempotency: completion writes to a content-addressed S3
 key, so replaying a write is a genuine no-op — put_content_addressed is
 what makes that true at the storage layer, not just at the database row.
 

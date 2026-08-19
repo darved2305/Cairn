@@ -4,11 +4,11 @@ Installed via `npx skills add cockroachlabs/cockroachdb-skills --copy` into
 `.agents/skills/` (34 skills, Apache-2.0). `--copy` instead of the default
 symlink install because OneDrive-synced directories on Windows silently
 drop the symlinks the tool tries to create for per-agent shortcuts; `--copy`
-writes real files into the committed, agent-agnostic location PLAN.md
+writes real files into the committed, agent-agnostic location docs/project/PLAN.md
 specifies, so this repo's provenance doesn't depend on that workaround.
 
 This file is updated as each skill causes a real, file-level change —
-"we installed it" is not meaningful use. See PROJECT.md §10 for the
+"we installed it" is not meaningful use. See docs/project/PROJECT.md §10 for the
 running summary; this doc carries the detail.
 
 ## `designing-application-transactions`
@@ -49,7 +49,7 @@ it. This is a local, same-host measurement (both "workers" are threads on
 one box with negligible network RTT between them); it's the number to
 recheck once D7's real cross-region ECS race introduces actual network
 latency between contenders, which is what the ~3.1 → ~0.4 target in
-PROJECT.md §10 item 2 was estimating for.
+docs/project/PROJECT.md §10 item 2 was estimating for.
 
 ## `cockroachdb-sql`
 

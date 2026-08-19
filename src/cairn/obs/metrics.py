@@ -1,10 +1,10 @@
-"""CloudWatch Embedded Metric Format (EMF) — PROJECT.md §6.3.
+"""CloudWatch Embedded Metric Format (EMF) — docs/project/PROJECT.md §6.3.
 
 One structured JSON line on stdout, in the exact shape CloudWatch Logs
 auto-extracts into a real custom metric under the `Cairn` namespace — no
 `PutMetricData` API call needed per data point (worker_task's IAM grant
 for that action, infra/iam.tf, is a belt-and-braces fallback, not the
-primary path). Every metric name here is one of PROJECT.md §6.3's five
+primary path). Every metric name here is one of docs/project/PROJECT.md §6.3's five
 named metrics: ReuseRate, DuplicatesPrevented, FailuresAvoided,
 ProbeLatencyP50, TxnRetries40001.
 

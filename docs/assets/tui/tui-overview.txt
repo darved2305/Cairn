@@ -1,0 +1,38 @@
+ cairn │ Searching causal memory │ 1/5 stages │ run 1111111… │ worker-a @ us-east-1 │ 1 live claim
+┏ 1 Pipeline (5) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃▸● env                   →  ○ dataset              →  ○ features              →  ○ checkpoint           →  ○ eval                 ┃
+┃  done                       planned                   planned                    planned                   planned               ┃
+┃  REUSE                                                unsound                                                                    ┃
+┃  cosmetic                                                                                                                        ┃
+┃  probe ok                                                                                                                        ┃
+┃  ████▏░ 69%                                                                                                                      ┃
+┃  0ms                                                                                                                             ┃
+┃  art-env                                                                                                                         ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+┌ 2 Claims (1) ─────────────────────────────────────────────────────────┐┌ 3 Ledger (1) ───────────────────────────────────────────┐
+│features  [contended]  wk-features                                     ││REUSE                env        reused                   │
+│  owner  worker-b @ eu-west-1 #3                                       ││  by probe  cosmetic  12ms                               │
+│  waiting worker-a @ us-east-1                                         ││  probe passed at tolerance                              │
+│  lease  ████████████████████████ 45.0s                                ││                                                         │
+│  beat   next in 10.0s   1 beats                                       ││                                                         │
+│                                                                       ││                                                         │
+│                                                                       ││                                                         │
+│                                                                       ││                                                         │
+│                                                                       ││                                                         │
+│                                                                       ││                                                         │
+│                                                                       ││                                                         │
+└───────────────────────────────────────────────────────────────────────┘└─────────────────────────────────────────────────────────┘
+┌ 4 Memory (2) ─────────────────────────────────────────────────────────┐┌ 5 Log (9) ──────────────────────────────────────────────┐
+│"cuda oom"  2 match(es), 1 verified  stage checkpoint                  ││12:04:31   Run started · target eval · us-east-1         │
+│                                                                       ││12:04:31   Planned 5 stage(s) · structurally unsound: fea│
+│◆ OutOfMemoryError  checkpoint   d=0.041                               ││12:04:31   stage env started                             │
+│  batch 64 OOMs on g5.xlarge                                           ││12:04:31   probe sampled_equivalence · 88/128 · passed   │
+│  verified remediation   wasted 1m31s                                  ││12:04:31   Reuse env · reused · probe passed at tolerance│
+│                                                                       ││12:04:31   stage env REUSE ·                             │
+│· ValueError  checkpoint   d=0.312                                     ││12:04:31   claim.contended features · contended · worker-│
+│  shape mismatch                                                       ││12:04:31   claim.heartbeat wk-features · contended · work│
+│  advisory — does not block   wasted 400ms                             ││12:04:31   memory search · 2 match(es), 1 with verified r│
+│                                                                       ││                                                         │
+└───────────────────────────────────────────────────────────────────────┘└─────────────────────────────────────────────────────────┘
+ / command  ? help  m memory search  q quit
+ Pipeline j/k stage · enter explain artifact · r run stage · R run all · p plan  │  1-5/tab panel · z zoom · t theme · ? keys

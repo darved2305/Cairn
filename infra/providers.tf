@@ -1,4 +1,4 @@
-# Terraform + provider configuration — PLAN.md D7.
+# Terraform + provider configuration — docs/project/PLAN.md D7.
 #
 # State is local (terraform.tfstate, gitignored) rather than an S3 backend:
 # this is a single-operator hackathon deployment, not a team one, and a
@@ -9,7 +9,7 @@
 # Two providers, not one: us-east-1 is the default/primary (console, ALB,
 # CloudFront, Bedrock, the primary worker service); us-west-2 is aliased
 # and used only for the second worker service, which is the whole point —
-# PROJECT.md §4.2's claim race has to be a real cross-region race against
+# docs/project/PROJECT.md §4.2's claim race has to be a real cross-region race against
 # one CockroachDB cluster, not two processes in one region.
 
 terraform {

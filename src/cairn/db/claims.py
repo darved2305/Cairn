@@ -1,4 +1,4 @@
-"""The distributed claim protocol. See PROJECT.md §4.2 for the full design.
+"""The distributed claim protocol. See docs/project/PROJECT.md §4.2 for the full design.
 
 Every function here runs through `db.txn.in_txn`, so every write is a
 single SERIALIZABLE transaction, replayed whole on 40001. That's what
@@ -281,7 +281,7 @@ def complete(
         # Content addresses intentionally converge across work keys. If
         # another environment produced byte-identical output first, the
         # canonical artifact/provenance row already exists and this claim may
-        # safely point at it (PROJECT.md §4.2 completion idempotency).
+        # safely point at it (docs/project/PROJECT.md §4.2 completion idempotency).
         insert_artifact(cur, artifact, inputs, allow_existing=True)
         return True
 
@@ -334,7 +334,7 @@ def subscribe(
 ) -> SubscribeResult:
     """The loser's path: poll until the owner reaches a terminal state, then
     adopt its result. From the caller's point of view it computed the value —
-    see PROJECT.md §4.2 "Loser behaviour"."""
+    see docs/project/PROJECT.md §4.2 "Loser behaviour"."""
 
     def _poll(cur: psycopg.Cursor) -> tuple[str, str, str, str, str | None]:
         cur.execute(

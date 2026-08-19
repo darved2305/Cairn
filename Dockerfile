@@ -1,9 +1,9 @@
-# One image, one deploy path — PROJECT.md §6.1. Worker and console tasks
+# One image, one deploy path — docs/project/PROJECT.md §6.1. Worker and console tasks
 # (infra/ecs.tf) run this same image with different container commands;
 # there is no separate console image.
 #
 # Multi-stage: the builder resolves the locked dependency set with uv (the
-# same resolver/lock the env fingerprint hashes — PROJECT.md §4.2), the
+# same resolver/lock the env fingerprint hashes — docs/project/PROJECT.md §4.2), the
 # final stage is a slim runtime with only the built venv and source, no
 # compiler toolchain.
 
@@ -51,7 +51,7 @@ from sentence_transformers import SentenceTransformer; \
 SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2').save('/opt/models/all-MiniLM-L6-v2')" \
     && chmod -R a+rX /opt/models
 
-# The console's React SPA. PROJECT.md §6.1 commits to "one image, one deploy
+# The console's React SPA. docs/project/PROJECT.md §6.1 commits to "one image, one deploy
 # path", so the built bundle is baked into this same image rather than being
 # served from a second container or an S3/CloudFront origin of its own —
 # `cairn.console.api` mounts it from /app/src/cairn/console/static and serves

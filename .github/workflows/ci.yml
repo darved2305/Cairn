@@ -1,4 +1,4 @@
-# CI — PLAN.md D10.
+# CI — docs/project/PLAN.md D10.
 #
 # Four jobs always run and need no secrets: lint, typecheck, the Python
 # unit/property suites, and a real frontend build. A fifth job runs the
@@ -6,7 +6,7 @@
 # gated on a service-account key being configured.
 #
 # That gate is deliberate and is the honest option, not a shortcut. This
-# repository has one absolute rule (PLAN.md §5): nothing that claims to be an
+# repository has one absolute rule (docs/project/PLAN.md §5): nothing that claims to be an
 # integration test may mock the database. The concurrency tests in particular —
 # a 200-iteration duplicate-claim race, a dispossessed-write test, a takeover
 # test — are only meaningful against a real SERIALIZABLE engine; running them
@@ -94,7 +94,7 @@ jobs:
       - name: tsc --noEmit
         run: npm run typecheck
       # A real production build. The public demo URL is a pass/fail submission
-      # requirement (PROJECT.md §0/§9), so "the frontend compiles" is a merge
+      # requirement (docs/project/PROJECT.md §0/§9), so "the frontend compiles" is a merge
       # gate, not a nicety.
       - run: npm run build
 

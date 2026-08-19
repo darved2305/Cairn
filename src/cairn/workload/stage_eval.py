@@ -1,6 +1,6 @@
-"""eval stage: accuracy + macro-F1 on the held-out split. PROJECT.md
+"""eval stage: accuracy + macro-F1 on the held-out split. docs/project/PROJECT.md
 §5.2: ~4s — the cheapest stage, which is exactly why an eval-only change
-(PROJECT.md §4.3's second worked example, `eval.metrics += ["macro_f1"]`)
+(docs/project/PROJECT.md §4.3's second worked example, `eval.metrics += ["macro_f1"]`)
 should never cost more than this regardless of what upstream reuses.
 """
 
@@ -66,7 +66,7 @@ def run(
     # (the train stage's config at the time it ran), not in eval.yaml; eval
     # has no way to discover it on its own, and guessing via the
     # module-level defaults broke the instant a caller trained with a
-    # non-default hidden_dim (PROJECT.md §4.3's own hidden_dim: 256->512
+    # non-default hidden_dim (docs/project/PROJECT.md §4.3's own hidden_dim: 256->512
     # worked example) — the load below raised a shape-mismatch RuntimeError
     # every time until this was made explicit.
     model = Classifier(input_dim=input_dim, hidden_dim=hidden_dim, num_labels=num_labels)

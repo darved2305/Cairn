@@ -3,7 +3,7 @@
 # connection string to .env. Idempotent: safe to re-run.
 #
 # Requires: the `ccloud` CLI, authenticated (`ccloud auth login`), and an
-# org with a Standard-plan trial available (PLAN.md §8, open decision 1 —
+# org with a Standard-plan trial available (docs/project/PLAN.md §8, open decision 1 —
 # vector index support is what forces Standard over Basic).
 set -euo pipefail
 

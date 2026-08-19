@@ -1,7 +1,7 @@
-"""Read-only queries backing the console API — PLAN.md D8.
+"""Read-only queries backing the console API — docs/project/PLAN.md D8.
 
 Every function here is a plain SELECT; nothing in this module writes.
-That's a code-level guarantee today, matching PLAN.md §8 open decision 4's
+That's a code-level guarantee today, matching docs/project/PLAN.md §8 open decision 4's
 "write mutations disabled at the IAM/role layer, not just in the UI" —
 the DB-role-level enforcement (a read-only Postgres role for the console's
 connection string) is a deployment-time follow-up, not a gap in this code.
@@ -20,7 +20,7 @@ from psycopg_pool import ConnectionPool
 from cairn.db import memory
 from cairn.db.txn import in_txn
 
-# The five fixed pipeline stages — PROJECT.md §4.3's DAG (env -> dataset ->
+# The five fixed pipeline stages — docs/project/PROJECT.md §4.3's DAG (env -> dataset ->
 # features -> checkpoint -> eval), matching planner.py's STAGES order.
 PIPELINE_STAGES = ("env", "dataset", "features", "checkpoint", "eval")
 
@@ -334,7 +334,7 @@ def decision_detail(pool: ConnectionPool, decision_id: uuid.UUID) -> DecisionDet
 
 
 # ---------------------------------------------------------------------------
-# Claim Theatre — PROJECT.md §7.2 panel 3.
+# Claim Theatre — docs/project/PROJECT.md §7.2 panel 3.
 # ---------------------------------------------------------------------------
 
 
@@ -345,7 +345,7 @@ class FragmentProgress:
     stage *will* produce is a property of the running worker's config
     (shard_count / epochs), not of anything this read-only view can observe,
     and inventing a denominator would be exactly the kind of unmeasured
-    number PROJECT.md §5.4 forbids."""
+    number docs/project/PROJECT.md §5.4 forbids."""
 
     completed: int
     latest_index: int
@@ -388,7 +388,7 @@ def list_claims(
 ) -> list[ClaimRow]:
     """Live `work_claims` joined to their `run_fragments` progress and
     `ownership_transfers` audit trail — the three tables the Claim Theatre
-    panel renders together (PROJECT.md §4.2's acquire/heartbeat/takeover
+    panel renders together (docs/project/PROJECT.md §4.2's acquire/heartbeat/takeover
     protocol, seen from outside).
 
     `lease_seconds_remaining` is computed server-side against the *cluster's*
@@ -486,7 +486,7 @@ def list_claims(
 
 
 # ---------------------------------------------------------------------------
-# Negative Memory search — PROJECT.md §7.2 panel 4, §4.1's tiering.
+# Negative Memory search — docs/project/PROJECT.md §7.2 panel 4, §4.1's tiering.
 # ---------------------------------------------------------------------------
 
 
@@ -518,7 +518,7 @@ class MemoryMatch:
     remediation: RemediationView | None
 
 
-# The one place the console is allowed to say "advisory" — PROJECT.md §4.1:
+# The one place the console is allowed to say "advisory" — docs/project/PROJECT.md §4.1:
 # "a `weak` match is a hint to a human, not a decision. This is stated in the
 # UI next to every weak match." The string lives here rather than in the
 # frontend so it cannot be dropped by a CSS/copy edit without also changing
@@ -562,7 +562,7 @@ def search_memory(
     """Structured pre-filter + vector search, tiered through the *same*
     `db/memory.py::tier` the agent loop uses — not a re-implementation.
 
-    PROJECT.md §4.1's tiers are a function of a *proposed plan's* structured
+    docs/project/PROJECT.md §4.1's tiers are a function of a *proposed plan's* structured
     features, not of a query string: `exact` additionally requires a recorded
     causal-key set (from a succeeded `remediations` row) that the candidate
     agrees with, plus matching `error_class` / `framework_version` /
@@ -614,14 +614,14 @@ def search_memory(
 
 
 # ---------------------------------------------------------------------------
-# Savings strip — PROJECT.md §5.4's measurement-honesty rule.
+# Savings strip — docs/project/PROJECT.md §5.4's measurement-honesty rule.
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class RateBasedCost:
     """Never a bare number. `formula` is rendered verbatim by the UI, exactly
-    as PROJECT.md §5.4 requires ("95.2 s × $0.0000274/s = $0.0026")."""
+    as docs/project/PROJECT.md §5.4 requires ("95.2 s × $0.0000274/s = $0.0026")."""
 
     seconds: float
     rate_usd_per_second: float
@@ -760,7 +760,7 @@ def _assemble_savings(
             cost=None,
             cost_unavailable_reason=(
                 "cost_rates has no fargate_vcpu_hour/fargate_gb_hour row — no rate, "
-                "no dollar figure (PROJECT.md §5.4: never an invented number)"
+                "no dollar figure (docs/project/PROJECT.md §5.4: never an invented number)"
             ),
             decisions_total=total,
         )
@@ -876,7 +876,7 @@ def list_flight_executions(pool: ConnectionPool, *, limit: int = 25) -> list[Fli
 
 @dataclass(frozen=True)
 class LeafRow:
-    """One cell of the Day-4 8x8 leaf map — PLAN.md §11's leaf map panel."""
+    """One cell of the Day-4 8x8 leaf map — docs/project/PLAN.md §11's leaf map panel."""
 
     bucket: int
     derivation_id: uuid.UUID
@@ -906,7 +906,7 @@ def leaf_map_for_root(pool: ConnectionPool, root_semantic_work_key: str) -> Leaf
     """The measured leaf grid for the current root derivation of one
     jsonl-map/v1 semantic key — every count/digest comes from
     `composite_derivations`/`derivation_fragments`, never a hard-coded
-    story (PLAN.md §11's "every displayed corpus count ... comes from the
+    story (docs/project/PLAN.md §11's "every displayed corpus count ... comes from the
     frozen receipt")."""
 
     def _tx(cur: psycopg.Cursor) -> LeafMap | None:

@@ -4,12 +4,12 @@
 # winner, that exact count resumed, clean digest match, timing receipt
 # showing the post-commit work window exceeded polling + StopTask latency.
 #
-# PLAN.md §19 Day 5 / Appendix E. This drives the REAL AWS ECS proof — it
+# docs/project/PLAN.md §19 Day 5 / Appendix E. This drives the REAL AWS ECS proof — it
 # costs real Fargate time and requires the `cairn` AWS profile (or
 # equivalent) with ecs:RunTask/StopTask/DescribeTasks and
 # ecr:GetAuthorizationToken/BatchGetImage on the cairn-us-east-1 cluster.
 #
-# Kill order (non-negotiable, PLAN.md §19): if the timing margin between the
+# Kill order (non-negotiable, docs/project/PLAN.md §19): if the timing margin between the
 # first committed microchunk and StopTask latency is absent, this script
 # must fail rather than fabricate a resumed count. There is no fallback
 # path inside this script that claims sub-leaf resume without the receipt
@@ -23,7 +23,7 @@ cd "$ROOT"
 : "${CAIRN_DATABASE_URL:?CAIRN_DATABASE_URL must be set}"
 : "${CAIRN_ECS_CLUSTER:=cairn-us-east-1}"
 : "${CAIRN_ECS_TASK_FAMILY:=cairn-worker-us-east-1}"
-: "${CAIRN_ECR_REPO:?CAIRN_ECR_REPO must be set, e.g. 357199110611.dkr.ecr.us-east-1.amazonaws.com/cairn}"
+: "${CAIRN_ECR_REPO:?CAIRN_ECR_REPO must be set, e.g. 111122223333.dkr.ecr.us-east-1.amazonaws.com/cairn}"
 : "${CAIRN_AWS_REGION:=us-east-1}"
 : "${AWS_PROFILE:=cairn}"
 export AWS_PROFILE
@@ -36,7 +36,7 @@ NS="gate-d-$(date +%s)"
 # timing window; this row count is a starting point, not a guarantee —
 # scripts/explain_flight_selectors.py or a receipt inspection after a dry
 # run is how you actually confirm which bucket clears the margin, per
-# PLAN.md Day 4's "[REAL_RECORD_ID]/[REAL_BUCKET]" freeze-from-receipt rule.
+# docs/project/PLAN.md Day 4's "[REAL_RECORD_ID]/[REAL_BUCKET]" freeze-from-receipt rule.
 ROW_COUNT="${GATE_D_ROW_COUNT:-400}"
 CORPUS="$OUT_DIR/corpus.jsonl"
 

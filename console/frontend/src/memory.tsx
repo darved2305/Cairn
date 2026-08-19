@@ -1,5 +1,5 @@
 /**
- * Panels 4-5 of PROJECT.md §7.2 (Negative Memory, Memory Inspector) and the
+ * Panels 4-5 of docs/project/PROJECT.md §7.2 (Negative Memory, Memory Inspector) and the
  * persistent Savings strip.
  *
  * Two rules from the spec are load-bearing here and are implemented as

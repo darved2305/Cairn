@@ -1,7 +1,7 @@
 -- 0008_console_readonly_role.sql
--- A dedicated SELECT-only SQL role for the console — PLAN.md §8 open
+-- A dedicated SELECT-only SQL role for the console — docs/project/PLAN.md §8 open
 -- decision 4 ("Console auth — none for judge mode; write mutations disabled
--- at the IAM/role layer, not just in the UI") and PLAN.md D10's security
+-- at the IAM/role layer, not just in the UI") and docs/project/PLAN.md D10's security
 -- checklist item "read-only console role".
 --
 -- The gap this closes is real and was previously only a comment: until now

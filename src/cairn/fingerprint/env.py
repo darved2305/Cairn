@@ -1,7 +1,7 @@
 """Environment fingerprint: hash of {base image digest, python version,
-sorted pip freeze, torch thread config} — PROJECT.md §4.2's work_key
+sorted pip freeze, torch thread config} — docs/project/PROJECT.md §4.2's work_key
 definition. Conservative mode never trusts a probe across environments
-(PROJECT.md §3.2), so this is the one input to work_key that, if it
+(docs/project/PROJECT.md §3.2), so this is the one input to work_key that, if it
 differs at all, forces recompute regardless of anything else."""
 
 from __future__ import annotations

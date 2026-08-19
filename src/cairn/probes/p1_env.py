@@ -1,4 +1,4 @@
-"""P1 env_identity — PROJECT.md §4.4.
+"""P1 env_identity — docs/project/PROJECT.md §4.4.
 
 Proves: base image digest, Python version, and the full resolved
 dependency set are identical between the artifact's recorded environment

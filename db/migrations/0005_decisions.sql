@@ -1,5 +1,5 @@
 -- 0005_decisions.sql
--- D5: the decision ledger and probe evidence. PROJECT.md §3.1's safety
+-- D5: the decision ledger and probe evidence. docs/project/PROJECT.md §3.1's safety
 -- rule — "The model may propose reuse. Deterministic evidence must
 -- authorize it." — is enforced here structurally, not by convention: the
 -- CHECK constraint below makes verdict='reuse' with authorized_by='model'
@@ -25,7 +25,7 @@ CREATE TABLE reuse_decisions (
   decision_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   work_key               STRING NOT NULL,
   stage                  STRING NOT NULL,
-  action                 STRING NOT NULL,   -- the nine actions, PROJECT.md §6.4
+  action                 STRING NOT NULL,   -- the nine actions, docs/project/PROJECT.md §6.4
   verdict                STRING NOT NULL,   -- reuse|recompute|refused|subscribed|resumed
   change_class           STRING,            -- comment_only|logging_only|...
   proposed_by            STRING NOT NULL,   -- rule|model
@@ -46,7 +46,7 @@ CREATE TABLE reuse_decisions (
   -- row when the expression is FALSE — NULL passes silently. Without the
   -- explicit `IS NOT NULL`, a verdict='reuse' row with no authorized_by
   -- at all would slip through unauthorized, which is exactly the case
-  -- PROJECT.md §3.1 exists to make impossible.
+  -- docs/project/PROJECT.md §3.1 exists to make impossible.
   CHECK (
     verdict <> 'reuse'
     OR (authorized_by IS NOT NULL AND authorized_by IN ('probe', 'structural', 'identity'))

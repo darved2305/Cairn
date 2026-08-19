@@ -1,5 +1,5 @@
 """`guard_sql` — the pre-flight layer of the Memory Inspector's three-layer
-read-only enforcement (PROJECT.md §6.2).
+read-only enforcement (docs/project/PROJECT.md §6.2).
 
 These tests cover the guard *only*. The other two layers — `SET TRANSACTION
 READ ONLY` and the `SELECT`-only SQL role — are properties of a real cluster

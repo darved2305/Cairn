@@ -1,4 +1,4 @@
-"""P6 eval_slice_replay — PROJECT.md §4.4.
+"""P6 eval_slice_replay — docs/project/PROJECT.md §4.4.
 
 Proves: the evaluation code produces the same number on the same
 deterministic 200-example slice, recomputed bitwise (conservative mode).

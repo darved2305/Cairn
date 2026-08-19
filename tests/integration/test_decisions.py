@@ -29,7 +29,7 @@ def _probe_result(*, passed: bool = True) -> ProbeResult:
 
 def test_database_rejects_model_authorized_reuse_even_bypassing_python(pool) -> None:
     """The CHECK constraint, not this module's __post_init__, is the real
-    guarantee — PROJECT.md §3.1. Prove it holds even for a raw INSERT that
+    guarantee — docs/project/PROJECT.md §3.1. Prove it holds even for a raw INSERT that
     never goes through ReuseDecision at all."""
 
     def _tx(cur: psycopg.Cursor) -> None:

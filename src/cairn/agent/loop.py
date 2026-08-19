@@ -1,4 +1,4 @@
-"""The agent loop — PROJECT.md §6.4.
+"""The agent loop — docs/project/PROJECT.md §6.4.
 
     perceive   -> planner.plan_pipeline (work keys, reachability, config reads)
     recall     -> db/claims.acquire (causal graph) + db/memory.search (negative memory)
@@ -13,7 +13,7 @@ handled for free by `claims.acquire` returning a SUCCEEDED hit) and `probe`
 stage, where both are genuinely cheap. `checkpoint` and `eval` always
 recompute for real on a work_key change — P4 checkpoint_logit requires a
 *second* checkpoint to already exist to compare against, so it cannot
-itself be what avoids paying for that checkpoint; PLAN.md's own D5 exit
+itself be what avoids paying for that checkpoint; docs/project/PLAN.md's own D5 exit
 bar ("hidden_dim change -> features reused, checkpoint+eval recomputed")
 is this exact behaviour, not a shortfall of it. `classify/rules.py`'s six
 change classes remain available, correct, and independently tested for a
@@ -25,7 +25,7 @@ Pre-flight `REFUSE_DOOMED` blocking is likewise scoped to the one case this
 codebase can derive an `error_class_hint` for *before* running anything:
 `checkpoint`'s embedding_dim/input_dim shape mismatch, mirroring the exact
 failure `stage_train.run_epochs` raises and the exact scenario
-PLAN.md D6's exit bar names. Other stages skip the pre-flight memory
+docs/project/PLAN.md D6's exit bar names. Other stages skip the pre-flight memory
 check entirely rather than guess an error class with no real basis for one
 -- `db/memory.py::tier` requires `match.error_class == candidate.error_class_hint`
 for both blocking tiers, so a hint-less search can structurally never block,
@@ -74,7 +74,7 @@ from cairn.storage import s3
 from cairn.workload import stage_dataset, stage_env, stage_eval, stage_features, stage_train
 from cairn.workload.stage_env import EnvManifest
 
-# PROJECT.md §5.2's approximate per-stage timings, used only as a cost-
+# docs/project/PROJECT.md §5.2's approximate per-stage timings, used only as a cost-
 # projection fallback when a stage has no prior artifacts yet to average a
 # real duration from. AWS Fargate on-demand, Linux/x86, us-east-1 —
 # published rates, stable for years, matching cost_rates.source_note's own
@@ -238,7 +238,7 @@ def estimated_cost_usd(pool: ConnectionPool, stage: str) -> tuple[float, str]:
     spelled out in the returned detail string — Definition of Done: "every
     number in the UI is measured or shown with its formula." Duration
     comes from a real average of this stage's own prior artifacts when any
-    exist, else the PROJECT.md §5.2 fallback above."""
+    exist, else the docs/project/PROJECT.md §5.2 fallback above."""
 
     _ensure_cost_rates(pool)
 
@@ -259,7 +259,7 @@ def estimated_cost_usd(pool: ConnectionPool, stage: str) -> tuple[float, str]:
         source = f"avg of prior {stage} artifacts"
     else:
         duration_s = float(_DEFAULT_DURATION_S.get(stage, 30))
-        source = "PROJECT.md §5.2 default (no prior artifacts to average)"
+        source = "docs/project/PROJECT.md §5.2 default (no prior artifacts to average)"
     hours = duration_s / 3600.0
     cost = (
         rates["fargate_vcpu_hour"] * _VCPU * hours
@@ -362,7 +362,7 @@ def _apply_remediation(
 
 # ---------------------------------------------------------------------------
 # stage compute — real work, with fragment persistence for the two
-# fragmentable stages (PROJECT.md §4.5).
+# fragmentable stages (docs/project/PROJECT.md §4.5).
 # ---------------------------------------------------------------------------
 
 

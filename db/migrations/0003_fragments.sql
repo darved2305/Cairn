@@ -1,5 +1,5 @@
 -- 0003_fragments.sql
--- Per-fragment checkpoints for crash recovery (PROJECT.md §4.5). Keyed by
+-- Per-fragment checkpoints for crash recovery (docs/project/PROJECT.md §4.5). Keyed by
 -- (work_key, fragment_index) so a resuming worker can look up "what do I
 -- already have" without needing to already know a fragment's content
 -- digest — that's verified separately against S3 on read

@@ -1,7 +1,7 @@
-"""Integration tests for the read-only console API — PLAN.md D8.
+"""Integration tests for the read-only console API — docs/project/PLAN.md D8.
 
 Every test seeds real rows in the live CockroachDB cluster (no mocked DB,
-PLAN.md §5's anti-simulation rule) and asserts against the FastAPI app's
+docs/project/PLAN.md §5's anti-simulation rule) and asserts against the FastAPI app's
 actual JSON responses via TestClient.
 """
 

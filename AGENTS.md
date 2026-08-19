@@ -6,7 +6,7 @@ actually reads, and decides whether a result can be reused, joined, taken over,
 repaired, or must run. CockroachDB is the authority plane. S3 is the immutable
 byte store. Submission deadline: 2026-08-18 17:00 EDT. Engineering freeze 08-17.
 
-Read `CAIRN_9_DAY_WINNING_PLAN.md` before starting. Appendix A is what the repo
+Read `docs/project/WINNING_PLAN_9_DAY.md` before starting. Appendix A is what the repo
 actually is today. Appendix B is the module boundaries and type signatures.
 Appendix C is the collector spec. Appendix E is what "done" means each day.
 

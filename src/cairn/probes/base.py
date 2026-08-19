@@ -1,11 +1,11 @@
-"""Shared probe result type and sampling primitive — PROJECT.md §4.4.
+"""Shared probe result type and sampling primitive — docs/project/PROJECT.md §4.4.
 
 Every probe recomputes a bounded, deterministically-selected sample and
 compares canonical bytes; none claims full equivalence, and the
 ``probe_runs`` table (db/decisions.py, D5) records ``sample_spec``,
 ``population_size``, and ``sample_size`` for exactly that reason — so the
 UI can render "128/2400" next to the word "sample" rather than implying a
-proof. Conservative mode always uses ``tolerance="bitwise"`` (PROJECT.md
+proof. Conservative mode always uses ``tolerance="bitwise"`` (docs/project/PROJECT.md
 §3.2: ``atol = 0``); ``balanced`` mode is out of scope for D5/D6.
 """
 
@@ -34,7 +34,7 @@ class ProbeResult:
 
 class Timer:
     """`with Timer() as t: ...; t.ms` — a tiny stopwatch so every probe
-    reports real wall-clock, not a guessed or hardcoded figure (PLAN.md's
+    reports real wall-clock, not a guessed or hardcoded figure (docs/project/PLAN.md's
     anti-simulation lint bans literal timings in anything claiming to be
     measured)."""
 
@@ -50,7 +50,7 @@ class Timer:
 def hash_select[T](salt: str, population: Sequence[T], k: int) -> list[T]:
     """Deterministically select up to `k` items from `population`.
 
-    PROJECT.md §4.4: "recompute k rows chosen by sha256(artifact_id ‖
+    docs/project/PROJECT.md §4.4: "recompute k rows chosen by sha256(artifact_id ‖
     row_id) mod N". Implemented as a full ranking rather than a modulus
     filter so the selected count is always exactly ``min(k, len(population))``
     regardless of population size — a modulus filter's selected count

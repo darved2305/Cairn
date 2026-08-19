@@ -48,7 +48,7 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/cairn"]
 
-# CPU-only torch — the demo runs on Fargate CPU, not GPU (PROJECT.md §5.1
+# CPU-only torch — the demo runs on Fargate CPU, not GPU (docs/project/PROJECT.md §5.1
 # rejected GPU workloads for quota/cold-start reasons), and the default
 # PyPI wheel drags in ~2GB of CUDA runtime nobody here uses.
 [tool.uv.sources]
@@ -64,7 +64,7 @@ line-length = 100
 target-version = "py312"
 src = ["src", "tests", "scripts"]
 # Never touch docs — ruff's markdown-fence formatting would otherwise
-# rewrite the Python snippets embedded in PLAN.md/PROJECT.md, which are
+# rewrite the Python snippets embedded in docs/project/PLAN.md/PROJECT.md, which are
 # locked planning documents, not source code owned by this tool.
 extend-exclude = ["*.md"]
 

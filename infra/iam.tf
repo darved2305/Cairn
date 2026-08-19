@@ -1,4 +1,4 @@
-# Least-privilege IAM — PLAN.md §7 D7 exit bar and PROJECT.md §6.3: "S3
+# Least-privilege IAM — docs/project/PLAN.md §7 D7 exit bar and docs/project/PROJECT.md §6.3: "S3
 # prefix-scoped, bedrock:InvokeModel on two model ARNs only." Every role
 # below is scoped to exactly what its process needs; nothing gets
 # AdministratorAccess or a wildcard resource unless the action genuinely
@@ -53,7 +53,7 @@ resource "aws_iam_role_policy" "ecs_execution_secrets" {
 # Worker task role — the role the *container* assumes at runtime.
 # S3 prefix-scoped to exactly the prefixes storage/s3.py and
 # scripts/vendor_dataset.py actually write to; Bedrock scoped to exactly
-# the two model ARNs PROJECT.md names, nothing else.
+# the two model ARNs docs/project/PROJECT.md names, nothing else.
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_role" "worker_task" {
@@ -66,7 +66,7 @@ locals {
   # actually use (workload/stage_*.py, storage/s3.py, storage/cas.py,
   # scripts/vendor_dataset.py) — not a bucket-wide grant.
   # cas/sha256/* is required for Flight Recorder leaf/root publication
-  # (PLAN.md §12/§18); omitting it fails the first PutObject on Gate C
+  # (docs/project/PLAN.md §12/§18); omitting it fails the first PutObject on Gate C
   # after the mapper loads.
   s3_object_prefixes = [
     "env/*",
@@ -87,7 +87,7 @@ locals {
 
   # `bedrock:InvokeModel` alone is NOT sufficient for the Claude calls this
   # codebase actually makes. classify/llm.py and console/inspector.py both use
-  # `AnthropicBedrockMantle` — PLAN.md §2's locked call shape, required because
+  # `AnthropicBedrockMantle` — docs/project/PLAN.md §2's locked call shape, required because
   # Sonnet 5's `thinking`/`output_config` parameters are only accepted through
   # that client — and that client targets the Bedrock *Mantle* endpoint, whose
   # authorization action is `bedrock-mantle:CreateInference` on a project ARN,
@@ -153,7 +153,7 @@ resource "aws_iam_role_policy" "worker_task" {
 # ---------------------------------------------------------------------------
 # Console task role — read-only against the app's own domain; enforcement
 # of "read-only" lives at the database layer (a read-only SQL role) per
-# PLAN.md §8 open decision 4, "not just in the UI." The AWS-side role only
+# docs/project/PLAN.md §8 open decision 4, "not just in the UI." The AWS-side role only
 # needs Bedrock for the Memory Inspector agent (D9).
 # ---------------------------------------------------------------------------
 

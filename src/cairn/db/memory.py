@@ -1,4 +1,4 @@
-"""Tiered negative computational memory — PROJECT.md §4.1, D6.
+"""Tiered negative computational memory — docs/project/PROJECT.md §4.1, D6.
 
 Vector similarity alone must never gate execution: `tier()` implements the
 exact/strong_semantic/weak table exactly as specified, and `weak` is
@@ -11,7 +11,7 @@ that provenance, cosine distance alone can never elevate a match past
 safe outcome).
 
 Thresholds live in one module-level dict, `TIERS`, so they are tunable
-and testable in one place — PLAN.md §3.4.
+and testable in one place — docs/project/PLAN.md §3.4.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ TIERS = {
     "weak_max_cosine": 0.35,
 }
 
-# failure_signatures' structured, exact-matchable columns — PROJECT.md §4.1.
+# failure_signatures' structured, exact-matchable columns — docs/project/PROJECT.md §4.1.
 STRUCTURED_FIELDS = (
     "model_family",
     "model_id",
@@ -74,7 +74,7 @@ BLOCKING_TIERS = frozenset({MatchTier.EXACT, MatchTier.STRONG_SEMANTIC})
 
 @dataclass(frozen=True)
 class PlanFeatures:
-    """The structured feature vector for the *proposed* run — PROJECT.md
+    """The structured feature vector for the *proposed* run — docs/project/PROJECT.md
     §4.1 step 1."""
 
     stage: str
@@ -267,7 +267,7 @@ def search(
 ) -> list[Match]:
     """Structured pre-filter + vector search, joined against each
     signature's most recent succeeded remediation in the same query —
-    PROJECT.md §4.2's "one store, one transaction, no dual-write" rationale
+    docs/project/PROJECT.md §4.2's "one store, one transaction, no dual-write" rationale
     for keeping this in CockroachDB rather than a separate vector DB."""
 
     vector = _vector_literal(embedding)
@@ -397,7 +397,7 @@ class FailureSignature:
 
 def record_failure_signature(pool: ConnectionPool, signature: FailureSignature) -> uuid.UUID:
     """Vector rows are written one at a time, per the performance skill's
-    guidance recorded in docs/SKILLS_USAGE.md — large batch inserts of
+    guidance recorded in docs/project/SKILLS_USAGE.md — large batch inserts of
     VECTOR degrade performance, so this is deliberately not batchable."""
 
     vector = _vector_literal(signature.embedding)
@@ -539,7 +539,7 @@ class VectorIndexStatus:
 
 def ensure_vector_index(pool: ConnectionPool) -> VectorIndexStatus:
     """Attempt to create the C-SPANN vector index; report which path is
-    active rather than raising. PLAN.md §13: index availability varies by
+    active rather than raising. docs/project/PLAN.md §13: index availability varies by
     CockroachDB plan/build — `cairn doctor` surfaces this status, and
     db/memory.py::search runs correct (if slower) brute-force `<=>` queries
     either way, so a missing index is degraded performance, never a

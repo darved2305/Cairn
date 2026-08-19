@@ -1,4 +1,4 @@
-"""P2 structural_unreachable — PROJECT.md §4.4.
+"""P2 structural_unreachable — docs/project/PROJECT.md §4.4.
 
 Proves: under the stated restriction (no `importlib`/`__import__`/
 `getattr`-dispatch/entry-points anywhere in the reachable set), the
@@ -7,7 +7,7 @@ over the *union* of the old and new call/import graphs, exactly as
 classify.rules.classify_unreachable_change discharges the
 `unreachable_change` class's proof obligation. P2 is that same computation
 exposed as a probe (with `probe_runs` evidence) so it can also back a
-non-`unreachable_change` verdict as corroborating evidence, per PROJECT.md
+non-`unreachable_change` verdict as corroborating evidence, per docs/project/PROJECT.md
 §3.3's "a probe is still run on top of the structural proof."
 
 Does not prove: anything if the restriction is violated — static

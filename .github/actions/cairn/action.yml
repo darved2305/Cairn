@@ -1,7 +1,7 @@
 name: 'Cairn'
 description: >
   Run one expensive command under the same digest-pinned OCI image as
-  ECS/local (PLAN.md §16). argv_json is a JSON array — never a shell
+  ECS/local (docs/project/PLAN.md §16). argv_json is a JSON array — never a shell
   string. Fork PRs get no namespace credentials and never publish.
 inputs:
   contract:

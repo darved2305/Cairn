@@ -1,7 +1,7 @@
 # Tools: what each one does, and why it is load-bearing
 
 **Judged CockroachDB tool pair (2026-08-10):** `ccloud` CLI (topology →
-persisted ECS routing) + Agent Skills Repo (`docs/SKILLS_USAGE.md`).
+persisted ECS routing) + Agent Skills Repo (`docs/project/SKILLS_USAGE.md`).
 **Distributed Vector Indexing is cut** until a live filtered `fs_sem_v2`
 `EXPLAIN` over MiniLM 384-d rows with provider/model/weights digest exists
 (`.cairn/out/eligibility/vector_claim_removed.json`). Managed MCP is not
@@ -82,7 +82,7 @@ the demonstrable difference between "we have a database" and "you can ask the
 memory questions" — and showing the SQL is what makes the answer checkable
 rather than merely fluent.
 
-**Constraints, enforced rather than described.** PROJECT.md §6.2 commits to a
+**Constraints, enforced rather than described.** docs/project/PROJECT.md §6.2 commits to a
 20 s query timeout, a 10 KiB response cap, a 25-row default limit, and no
 `crdb_internal` access. All four live in one place
 (`src/cairn/console/sqltools.py`) and apply to every backend. Enforcement is
@@ -125,7 +125,7 @@ Used in three real places, none of them ceremonial:
   sql --url` to obtain the connection string, which it writes to `.env`.
   Teardown is `ccloud cluster delete` via `make teardown`. The cluster is
   scripted, reproducible, and disposable — which is also the cost control
-  (see `docs/COST.md`).
+  (see `docs/operations/COST.md`).
 - **CI.** A service-account API key drives `ccloud` non-interactively to create
   an **ephemeral verification cluster per pull request**, apply migrations, run
   the integration suite including the race test against real CockroachDB, and
@@ -150,7 +150,7 @@ clicks, and the "no mocked database" guarantee in CI becomes unaffordable.
 via `npx skills add cockroachlabs/cockroachdb-skills` and committed to the repo.
 
 These are not decoration: they changed the schema and the transaction code, and
-`docs/SKILLS_USAGE.md` records which skill informed which file, with the
+`docs/project/SKILLS_USAGE.md` records which skill informed which file, with the
 before/after numbers. The four concrete changes:
 
 1. **Retry scope.** The original `with_retry` wrapper retried only the failing
@@ -221,9 +221,9 @@ Memory Inspector 403-ing while every other panel worked.
 | ≥ 1 AWS service, used meaningfully | Six above |
 | CockroachDB as load-bearing persistent memory | Claims, causal graph, negative memory, decisions, and fragments are all CockroachDB tables; every console panel reads them live |
 | Deployed on AWS | ECS Fargate ×2 regions, S3, Bedrock, Lambda, EventBridge, CloudWatch, CloudFront |
-| Explain what each tool does | This document, plus `PROJECT.md` §6.2/§6.3 |
+| Explain what each tool does | This document, plus `docs/project/PROJECT.md` §6.2/§6.3 |
 
-See also: [`ARCHITECTURE.md`](ARCHITECTURE.md) for how these fit together,
-[`PROBES.md`](PROBES.md) for what the evidence layer does and does not prove,
-[`SKILLS_USAGE.md`](SKILLS_USAGE.md) for the skills' file-level impact, and
-[`COST.md`](COST.md) for the spend guardrails.
+See also: [`OVERVIEW.md`](OVERVIEW.md) for how these fit together,
+[`PROBES.md`](../internals/PROBES.md) for what the evidence layer does and does not prove,
+[`SKILLS_USAGE.md`](../project/SKILLS_USAGE.md) for the skills' file-level impact, and
+[`COST.md`](../operations/COST.md) for the spend guardrails.

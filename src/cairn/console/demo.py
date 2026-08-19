@@ -1,4 +1,4 @@
-"""Judge mode's "Run the demo" / "Reset demo" controls — PROJECT.md §7.2.
+"""Judge mode's "Run the demo" / "Reset demo" controls — docs/project/PROJECT.md §7.2.
 
 **What this actually is, stated plainly, because the distinction matters:**
 this is a *replay* of rows that are already in the cluster, paced by the
@@ -9,7 +9,7 @@ queries.py` is all SELECTs, and once `db/migrations/0008` is wired it holds a
 SQL role that cannot write even if the code tried).
 
 That is a deliberate scoping decision, not an oversight. Real re-execution of
-PROJECT.md §12's four scenarios means two-region `ecs:RunTask`, real S3
+docs/project/PROJECT.md §12's four scenarios means two-region `ecs:RunTask`, real S3
 writes, and a real `docker kill` mid-`features` — a public, unauthenticated
 URL that anyone can point at real compute is a cost and abuse problem, and
 the console has no credential to do it with anyway. The honest version is
@@ -39,7 +39,7 @@ from cairn.console.queries import _PRODUCT_ARTIFACT_FILTER, _PRODUCT_DECISION_FI
 from cairn.db.txn import in_txn
 
 # Wall-clock pacing. A recorded 95 s feature stage is not replayed at 95 s —
-# PROJECT.md §12's own video does the same thing and labels it. The factor is
+# docs/project/PROJECT.md §12's own video does the same thing and labels it. The factor is
 # reported in the API response so the number on screen is never mistaken for
 # a live measurement.
 PLAYBACK_SPEED = 6.0
@@ -122,7 +122,7 @@ def _build(pool: ConnectionPool) -> list[DemoScenario]:
 
         scenarios: list[DemoScenario] = []
 
-        # --- 1. Evidence-backed reuse (PROJECT.md §4.4, video 0:15-0:45) ---
+        # --- 1. Evidence-backed reuse (docs/project/PROJECT.md §4.4, video 0:15-0:45) ---
         cur.execute(
             f"""
             SELECT d.decision_id, d.stage, d.action, d.verdict, d.authorized_by,
@@ -166,7 +166,7 @@ def _build(pool: ConnectionPool) -> list[DemoScenario]:
             )
         )
 
-        # --- 2. Causal partial reuse (PROJECT.md §4.3, video 0:45-1:20) ---
+        # --- 2. Causal partial reuse (docs/project/PROJECT.md §4.3, video 0:45-1:20) ---
         cur.execute(
             f"""
             SELECT d.decision_id, d.stage, d.action, d.verdict, d.latency_ms, d.explanation
@@ -210,7 +210,7 @@ def _build(pool: ConnectionPool) -> list[DemoScenario]:
             )
         )
 
-        # --- 3. Claim race, fencing, crash resume (PROJECT.md §4.2/§4.5) ---
+        # --- 3. Claim race, fencing, crash resume (docs/project/PROJECT.md §4.2/§4.5) ---
         cur.execute(
             """
             SELECT t.transfer_id, t.work_key, t.from_owner, t.to_owner,

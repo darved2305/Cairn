@@ -1,6 +1,6 @@
 """Memory Inspector — natural-language Q&A over the live cluster.
 
-PROJECT.md §7.2 panel 5 / §6.2 tool 2: a Bedrock Claude agent whose tools are
+docs/project/PROJECT.md §7.2 panel 5 / §6.2 tool 2: a Bedrock Claude agent whose tools are
 the CockroachDB Cloud MCP Server's `list_tables`, `get_table_schema`,
 `select_query`, and `explain_query`, with **the executed SQL displayed under
 every answer**. That last part is the whole point — the panel exists to turn
@@ -8,7 +8,7 @@ every answer**. That last part is the whole point — the panel exists to turn
 work", so an answer with no SQL attached is a failure, not a terse success.
 
 Why a hand-written tool loop rather than the API's MCP connector: this agent
-runs on **Amazon Bedrock** (PROJECT.md §6.3 pins `anthropic.claude-sonnet-5`
+runs on **Amazon Bedrock** (docs/project/PROJECT.md §6.3 pins `anthropic.claude-sonnet-5`
 there, and `infra/iam.tf` scopes the console task role to exactly those model
 ARNs). Bedrock does not offer the server-side MCP connector, so the MCP
 session is driven client-side by `console/sqltools.py` and its tools are

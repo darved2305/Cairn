@@ -1,7 +1,7 @@
 """Proves the Python -> event-file bridge end-to-end against the real
 claim protocol and decision ledger — not just obs/events.py's own unit
 tests (which never touch CockroachDB), but the actual call sites wired
-into db/claims.py and db/decisions.py. PLAN.md §5's anti-simulation rule
+into db/claims.py and db/decisions.py. docs/project/PLAN.md §5's anti-simulation rule
 applies here too: every payload asserted below was written by real SQL
 against the live local cluster, not fabricated by the test.
 """

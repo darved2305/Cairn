@@ -1,11 +1,11 @@
-"""D6 exit criteria — PLAN.md D6: "a never-seen mpnet misconfiguration is
+"""D6 exit criteria — docs/project/PLAN.md D6: "a never-seen mpnet misconfiguration is
 blocked at strong_semantic before any compute; applying the remediation
 lets it through."
 
 Uses the real sentence-transformer model (already vendored for the
-`features` stage, PROJECT.md §5.2) as the embedder here instead of
+`features` stage, docs/project/PROJECT.md §5.2) as the embedder here instead of
 Bedrock Titan — Bedrock isn't reachable in this environment, and
-PLAN.md §13's own risk mitigation is explicit that "the demo's
+docs/project/PLAN.md §13's own risk mitigation is explicit that "the demo's
 correctness path never depends on the LLM" for exactly this reason. This
 is not a mock: MiniLM is a real model producing real, semantically
 meaningful embeddings; it just isn't the specific 1024-dim model the

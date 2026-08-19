@@ -1,4 +1,4 @@
-"""Lease reaper — PROJECT.md §4.5, D7.
+"""Lease reaper — docs/project/PROJECT.md §4.5, D7.
 
 Flips expired CLAIMED/RUNNING work_claims rows to ABANDONED. It never
 deletes anything and never completes work itself: ABANDONED is already a

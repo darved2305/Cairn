@@ -1,6 +1,6 @@
-"""Read-only console API + the built React app — PLAN.md D8/D9, PROJECT.md §7.2.
+"""Read-only console API + the built React app — docs/project/PLAN.md D8/D9, docs/project/PROJECT.md §7.2.
 
-No auth, by design: PLAN.md §8 open decision 4 — judge mode has no login,
+No auth, by design: docs/project/PLAN.md §8 open decision 4 — judge mode has no login,
 and write mutations are disabled at the IAM/role layer (the console's DB
 connection uses a read-only role once deployed —
 `db/migrations/0008_console_readonly_role.sql`), not gated behind a password
@@ -14,7 +14,7 @@ The two `POST` routes are not exceptions to that. `/api/demo/run` and
 not belong in a URL — the SQL it ends up running is guarded, read-only, and
 returned to the caller verbatim.
 
-One image, one deploy path (PROJECT.md §6.1): if `console/frontend/dist`
+One image, one deploy path (docs/project/PROJECT.md §6.1): if `console/frontend/dist`
 exists (or `CAIRN_CONSOLE_STATIC` points somewhere), the built SPA is mounted
 at `/` from this same FastAPI app. In local frontend development it does not
 exist, Vite serves the UI on its own port, and this app is API-only.
@@ -54,7 +54,7 @@ app = FastAPI(
 )
 
 # Judge mode ships the API and the built React app from one container
-# (PROJECT.md §6.1's "single container"), but local frontend development
+# (docs/project/PROJECT.md §6.1's "single container"), but local frontend development
 # runs Vite's own dev server on a different port — CORS is wide open here
 # because there are no credentials, and the only writes reachable through it
 # are to an in-process replay clock.
@@ -106,7 +106,7 @@ def decision(decision_id: uuid.UUID) -> queries.DecisionDetail:
 
 @app.get("/api/claims")
 def claims(limit: int = 50, include_validation: bool = False) -> dict[str, object]:
-    """Claim Theatre — PROJECT.md §7.2 panel 3."""
+    """Claim Theatre — docs/project/PROJECT.md §7.2 panel 3."""
 
     if not (1 <= limit <= 200):
         raise HTTPException(status_code=400, detail="limit must be between 1 and 200")
@@ -130,7 +130,7 @@ def flight_executions(limit: int = 25) -> dict[str, object]:
 
 @app.get("/api/flight/receipt/{derivation_id}")
 def flight_receipt(derivation_id: uuid.UUID) -> dict[str, object]:
-    """Shareable read-only receipt — PLAN.md §19 Day 6. Same projection as
+    """Shareable read-only receipt — docs/project/PLAN.md §19 Day 6. Same projection as
     ``cairn receipt --run``, minus the S3 re-fetch (``--verify`` is a CLI-only
     operation; a page view should not fan out to S3 on every load)."""
     from cairn.flight.receipt import ReceiptNotFound, load_receipt
@@ -144,7 +144,7 @@ def flight_receipt(derivation_id: uuid.UUID) -> dict[str, object]:
 
 @app.get("/api/flight/leaves/{root_semantic_work_key}")
 def flight_leaf_map(root_semantic_work_key: str) -> queries.LeafMap:
-    """Day-4 8x8 leaf map — PLAN.md §11. 404s until a jsonl-map/v1 root has
+    """Day-4 8x8 leaf map — docs/project/PLAN.md §11. 404s until a jsonl-map/v1 root has
     actually published; there is no placeholder grid to fall back to."""
 
     result = queries.leaf_map_for_root(get_pool(), root_semantic_work_key)
@@ -160,7 +160,7 @@ def memory_search(
     stage: str | None = None,
     error_class: str | None = None,
 ) -> dict[str, object]:
-    """Negative Memory — PROJECT.md §7.2 panel 4, tiered per §4.1.
+    """Negative Memory — docs/project/PROJECT.md §7.2 panel 4, tiered per §4.1.
 
     `stage`/`error_class` are optional because a judge typing a sentence has
     neither. Without them, `db/memory.py::tier` can only reach `weak` — which
@@ -204,7 +204,7 @@ def memory_search(
         "semantic": type(provider).__name__ == "TitanEmbeddingProvider",
         "tiering_note": (
             "exact/strong_semantic additionally require a proposed plan's structured "
-            "features and a verified remediation (PROJECT.md §4.1); a free-text query "
+            "features and a verified remediation (docs/project/PROJECT.md §4.1); a free-text query "
             "supplies neither, so it can only reach 'weak'."
         ),
         "weak_label": queries.WEAK_ADVISORY_LABEL,
@@ -224,7 +224,7 @@ class InspectRequest(BaseModel):
 
 @app.post("/api/memory/inspect")
 def memory_inspect(payload: InspectRequest) -> dict[str, object]:
-    """Memory Inspector — PROJECT.md §7.2 panel 5.
+    """Memory Inspector — docs/project/PROJECT.md §7.2 panel 5.
 
     Returns the answer *and* the SQL that produced it. If the agent could not
     run, this 503s with the real reason; it never returns prose that was not
@@ -255,7 +255,7 @@ def memory_inspect(payload: InspectRequest) -> dict[str, object]:
 @app.get("/api/savings")
 def savings() -> queries.Savings:
     """The persistent Savings strip — measured counts, plus one derived cost
-    that always carries its formula (PROJECT.md §5.4)."""
+    that always carries its formula (docs/project/PROJECT.md §5.4)."""
 
     return queries.savings(get_pool())
 
@@ -298,7 +298,7 @@ def demo_reset() -> dict[str, object]:
     }
 
 
-# --- the built SPA, served from this same app (PROJECT.md §6.1) -------------
+# --- the built SPA, served from this same app (docs/project/PROJECT.md §6.1) -------------
 
 
 def _static_dir() -> Path | None:

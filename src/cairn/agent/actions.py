@@ -1,4 +1,4 @@
-"""The nine agent actions — PROJECT.md §6.4.
+"""The nine agent actions — docs/project/PROJECT.md §6.4.
 
 Re-exports `db/decisions.py::ACTIONS` as a proper enum for the agent loop
 to switch on, rather than defining a second, driftable list of action

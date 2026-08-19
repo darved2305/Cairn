@@ -1,12 +1,12 @@
 """Full pipeline, end-to-end, through real storage: env -> dataset ->
 features -> checkpoint -> eval, each stage's output actually written to
 and read back from S3 (MinIO locally), not passed in-memory between
-stages. PLAN.md D3 exit criterion: "full pipeline runs locally in Docker
+stages. docs/project/PLAN.md D3 exit criterion: "full pipeline runs locally in Docker
 end-to-end."
 
 Uses a small synthetic corpus rather than the full ~3200-document vendored
 snapshot — this test is proving the five stages and the storage layer
-wire together correctly, which doesn't need PROJECT.md's real dataset
+wire together correctly, which doesn't need docs/project/PROJECT.md's real dataset
 size to be true; scripts/vendor_dataset.py + a real bucket is what you'd
 point this at for the full-size run.
 """
@@ -101,7 +101,7 @@ def test_full_pipeline_through_real_storage(warm_embedding_model: None) -> None:
     assert eval_artifact.num_eval_examples == dataset_artifact.num_test
 
     # Re-uploading the same content must be a genuine no-op (idempotency —
-    # PROJECT.md §4.2), not a second real write.
+    # docs/project/PROJECT.md §4.2), not a second real write.
     replay = s3.put_content_addressed(BUCKET, "checkpoint", checkpoint_artifact.state_dict_bytes)
     assert replay.already_existed
     assert replay.key == checkpoint_put.key

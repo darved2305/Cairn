@@ -52,7 +52,7 @@ def test_run_sh_rejects_non_digest_image(tmp_path: Path) -> None:
         "CAIRN_ID_FIELD": "id",
         "CAIRN_PARTITIONS": "64",
         "CAIRN_OUTPUT_FILE": str(tmp_path / "out.jsonl"),
-        "CAIRN_OCI_IMAGE": "357199110611.dkr.ecr.us-east-1.amazonaws.com/cairn:latest",
+        "CAIRN_OCI_IMAGE": "111122223333.dkr.ecr.us-east-1.amazonaws.com/cairn:latest",
         "CAIRN_NAMESPACE": "ci",
         "CAIRN_RECEIPT_BASE_URL": "",
         "GITHUB_OUTPUT": str(tmp_path / "out"),
@@ -74,5 +74,5 @@ def test_run_sh_rejects_non_digest_image(tmp_path: Path) -> None:
 
 def test_oci_image_digest_ref_contract() -> None:
     """Same gate run.sh enforces — mutable tags are refused."""
-    assert "@sha256:" in "357199110611.dkr.ecr.us-east-1.amazonaws.com/cairn@sha256:deadbeef"
-    assert "@sha256:" not in "357199110611.dkr.ecr.us-east-1.amazonaws.com/cairn:latest"
+    assert "@sha256:" in "111122223333.dkr.ecr.us-east-1.amazonaws.com/cairn@sha256:deadbeef"
+    assert "@sha256:" not in "111122223333.dkr.ecr.us-east-1.amazonaws.com/cairn:latest"

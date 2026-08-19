@@ -1,4 +1,4 @@
-.PHONY: cluster local-cluster local-cluster-down migrate seed demo race teardown check test test-integration lint typecheck fmt tui tui-test tui-check console console-build console-check
+.PHONY: cluster local-cluster local-cluster-down migrate seed demo race teardown check test test-integration lint typecheck fmt tui tui-test tui-check tui-legacy-build tui-legacy-check tui-legacy-test console console-build console-check
 
 # Every recipe below runs with hash randomization pinned off — workload/
 # determinism.py refuses to run otherwise (PYTHONHASHSEED can only be set
@@ -72,14 +72,28 @@ console-build:
 console-check:
 	cd console/frontend && npm run typecheck
 
-# Build the interactive terminal (tui/) — `cairn` (bare, no subcommand,
-# TTY stdout) launches tui/dist/index.js as a subprocess. Run once after
-# cloning, and again after changing anything under tui/src.
+# Build the interactive terminal — `cairn` (bare, no subcommand, TTY stdout)
+# spawns tui-rs/target/release/cairn-tui as a subprocess. Run once after
+# cloning, and again after changing anything under tui-rs/crates.
+#
+# tui/ is the superseded TypeScript/pi-tui implementation. It is kept for
+# reference only; nothing in src/ launches it. See tui-legacy-* below.
 tui:
-	cd tui && npm install && npm run build
+	cd tui-rs && cargo build --release
 
+# No `cargo fmt --check` here: this workspace is not rustfmt-default-formatted,
+# and reformatting it would be an unrelated whole-tree diff.
 tui-check:
-	cd tui && npm run typecheck
+	cd tui-rs && cargo clippy --workspace --all-targets -- -D warnings
 
 tui-test:
+	cd tui-rs && cargo test --workspace
+
+tui-legacy-build:
+	cd tui && npm install && npm run build
+
+tui-legacy-check:
+	cd tui && npm run typecheck
+
+tui-legacy-test:
 	cd tui && npm test

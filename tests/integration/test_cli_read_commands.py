@@ -3,7 +3,7 @@
 search`/`memory why-blocked`, and `doctor`.
 
 Every test seeds real rows through the actual db-layer write functions
-against the live local CockroachDB cluster (PLAN.md §5's anti-simulation
+against the live local CockroachDB cluster (docs/project/PLAN.md §5's anti-simulation
 rule — no mocked DB). `explain`/`memory`/`doctor` all call `close_pool()`
 on exit (same as every other Cairn CLI command), so — mirroring
 tests/integration/test_cli_claim_demo.py's own docstring — each test seeds

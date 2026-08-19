@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Single-node CockroachDB in Docker for local dev/testing without a
-# CockroachDB Cloud account. This is the fallback path PLAN.md §8 calls
+# CockroachDB Cloud account. This is the fallback path docs/project/PLAN.md §8 calls
 # for — same schema, same SERIALIZABLE semantics, same wire protocol, just
 # not the vector index or multi-region topology the demo cluster needs.
 #

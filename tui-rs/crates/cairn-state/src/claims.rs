@@ -1,5 +1,5 @@
 //! Live view of the distributed claim protocol (`src/cairn/db/claims.py`,
-//! PROJECT.md §4.2) — the "Claim Theatre" as *state*: who owns each
+//! docs/project/PROJECT.md §4.2) — the "Claim Theatre" as *state*: who owns each
 //! work_key right now, from which region, at which fence, and how much
 //! lease is left before a contender may take over.
 //!

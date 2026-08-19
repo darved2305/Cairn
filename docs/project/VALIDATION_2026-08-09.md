@@ -6,6 +6,11 @@ AWS deployment. This log records only observed results. It does not contain
 mocked database results, fabricated timings, fabricated identifiers, or
 unexecuted claims.
 
+> **Redaction note.** The AWS account id in every ARN below was replaced with
+> the documentation placeholder `111122223333` before publication. Nothing
+> else in this log was altered: task ids, digests, timings, and outcomes are
+> exactly as observed.
+
 ## Guardrails
 
 - AWS commands use the `cairn` profile explicitly.
@@ -64,11 +69,11 @@ appended below as they are obtained.
 - Reproduction: the isolated boto3 probe exited before producing JSON with
   `OPENSSL_Uplink ... no OPENSSL_Applink`, while an explicit
   `AWS_PROFILE=cairn aws sts get-caller-identity` succeeded against account
-  `357199110611`.
+  `111122223333`.
 - Fix: doctor retains the isolated SDK probe and falls back to the installed,
   isolated AWS CLI when that probe crashes or fails. The output labels the
   successful path.
-- Retest: `cairn doctor` reports `PASS aws`, account `357199110611`, via the AWS
+- Retest: `cairn doctor` reports `PASS aws`, account `111122223333`, via the AWS
   CLI fallback. The database, schema, and vector-index checks remain live and
   green.
 
@@ -119,18 +124,18 @@ appended below as they are obtained.
 ### ECS cross-region race — deployment defects found by running it
 
 - Attempt 1 used real task ARNs
-  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/a242079218d54104aced8ebd692956f5`
+  `arn:aws:ecs:us-east-1:111122223333:task/cairn-us-east-1/a242079218d54104aced8ebd692956f5`
   and
-  `arn:aws:ecs:us-west-2:357199110611:task/cairn-us-west-2/ffb5d0d5243f4a6bbec27d18fa7842cb`.
+  `arn:aws:ecs:us-west-2:111122223333:task/cairn-us-west-2/ffb5d0d5243f4a6bbec27d18fa7842cb`.
   Both failed before claiming because the existing worker secret embedded the
   local Windows CA path `C:/Users/mites/.aws/ca-bundle-with-avast.pem`.
 - The existing secret was rotated in place—no resource was created—to use
   `sslrootcert=system`; its new version is
   `abbfd1ec-9146-4da0-8f15-b9d5835a2546`.
 - Attempt 2 used real task ARNs
-  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/3d42063e88bd46679bc3cb029adb84c2`
+  `arn:aws:ecs:us-east-1:111122223333:task/cairn-us-east-1/3d42063e88bd46679bc3cb029adb84c2`
   and
-  `arn:aws:ecs:us-west-2:357199110611:task/cairn-us-west-2/01384eb8873547ccafb99af7e3cdfda2`.
+  `arn:aws:ecs:us-west-2:111122223333:task/cairn-us-west-2/01384eb8873547ccafb99af7e3cdfda2`.
   Both advanced to TLS verification, then exposed that the pinned deployed
   image could not build CockroachDB Cloud's certificate chain. The current
   Dockerfile already contains the committed intermediate-chain repair; the
@@ -166,9 +171,9 @@ appended below as they are obtained.
 
 - Final work key: `race-ecs-884f679e43e64b7989e32373cb57b335`.
 - East task:
-  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/59980ddf07204e0cb48f6f0cef1995cc`.
+  `arn:aws:ecs:us-east-1:111122223333:task/cairn-us-east-1/59980ddf07204e0cb48f6f0cef1995cc`.
 - West task:
-  `arn:aws:ecs:us-west-2:357199110611:task/cairn-us-west-2/a46d738b0d0a42aa916e1ae27c50f967`.
+  `arn:aws:ecs:us-west-2:111122223333:task/cairn-us-west-2/a46d738b0d0a42aa916e1ae27c50f967`.
 - Both tasks exited 0. The real CockroachDB row ended `SUCCEEDED`, winner
   `ip-172-31-6-93.us-west-2.compute.internal-1`, region `us-west-2`, fence 1,
   artifact `c9d0e8a33f57d11c036699f2037d9ef7f8a463f4a6334e5e179632ab9fa944d7`.
@@ -201,17 +206,17 @@ appended below as they are obtained.
 ### Real workload deployment defects and remediation
 
 - First env task
-  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/da9612854b7442ac8d8b8d7a9af0ba84`
+  `arn:aws:ecs:us-east-1:111122223333:task/cairn-us-east-1/da9612854b7442ac8d8b8d7a9af0ba84`
   reached a real PutObject and failed because the worker role omitted `env/*`.
   The existing inline role policy and Terraform source were updated; IAM
   simulation now returns `allowed` for env PutObject and GetObject.
 - Exact env retest task
-  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/b9f4a46a9fe94efd8ce3cc82be36de46`
+  `arn:aws:ecs:us-east-1:111122223333:task/cairn-us-east-1/b9f4a46a9fe94efd8ce3cc82be36de46`
   exited 0 with RECOMPUTE. Artifact
   `7e80c7ee71ae4e0773c8cc08718457113d9c28ef4fc5aa0536b4729095d6342e`
   was observed by `head-object` at its real S3 key, 1,652 bytes.
 - Dataset task
-  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/9b2d055366304535b7ab07a6bedcd38f`
+  `arn:aws:ecs:us-east-1:111122223333:task/cairn-us-east-1/9b2d055366304535b7ab07a6bedcd38f`
   then failed with a real NoSuchKey because `cairn.yaml` still named the
   explicitly provisional `unvendored-20news-4cat-v1` snapshot.
 - That unrelated missing input also exposed a logic bug: the loop blindly
@@ -260,17 +265,17 @@ appended below as they are obtained.
   Existing east worker, west worker, and console families were registered as
   revision 5; no infrastructure resource was created.
 - Cold env task
-  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/ef18fd96c319494690af6b54dad9ea5c`
+  `arn:aws:ecs:us-east-1:111122223333:task/cairn-us-east-1/ef18fd96c319494690af6b54dad9ea5c`
   exited 0 and recomputed artifact
   `98235865c159a2d13559e8f5166fe940c91c284173f07ef389cd4f2be2e2a7aa`
   under the new image-dependent work key.
 - Dataset task
-  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/24da6e5b02ce41d593f2bc413839e5ad`
+  `arn:aws:ecs:us-east-1:111122223333:task/cairn-us-east-1/24da6e5b02ce41d593f2bc413839e5ad`
   exited 0, identity-reused env, read the real vendored snapshot, and
   recomputed artifact
   `e7765b30acf66f1f0e75adddb7085b9ea02946aabf9c04889fc1431c6f6bdf24`.
 - Features task
-  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/953b410cc91946229550621fe3ce54df`
+  `arn:aws:ecs:us-east-1:111122223333:task/cairn-us-east-1/953b410cc91946229550621fe3ce54df`
   loaded all 103 real model weight tensors and performed the long stage, but
   exited 1 with `dispossessed while completing ... (fence=1)`.
 - Root cause: only `claim-demo` heartbeated. The real agent loop acquired a
@@ -287,13 +292,13 @@ appended below as they are obtained.
 ### Defect 7 — identical bytes across environments collided on provenance
 
 - Revision-6 task
-  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/2f91250e8b4343d4885f1707013d22aa`
+  `arn:aws:ecs:us-east-1:111122223333:task/cairn-us-east-1/2f91250e8b4343d4885f1707013d22aa`
   recomputed byte-identical dataset output under the new image environment,
   then exited 1 because artifact
   `e7765b30acf66f1f0e75adddb7085b9ea02946aabf9c04889fc1431c6f6bdf24`
   already had the prior environment input. This happened before the new
   features stage, so it is independent of the heartbeat fix.
-- PROJECT.md §4.2 explicitly defines artifact IDs as payload SHA-256 and says
+- docs/project/PROJECT.md §4.2 explicitly defines artifact IDs as payload SHA-256 and says
   repeat completion is a no-op at the artifact primary key. The fix preserves
   that contract: direct provenance writes remain conflict-strict, while a
   fenced claim completion may converge on an already-known content address.
@@ -309,7 +314,7 @@ appended below as they are obtained.
   the ECR digest is
   `sha256:cbd448e1b8ece57a918ec5bfe4b8107c0217393d66be0f412045a30abac198fb`.
 - The cold features task
-  `arn:aws:ecs:us-east-1:357199110611:task/cairn-us-east-1/05f9aa3626ef400b83e371c84a925ad2`
+  `arn:aws:ecs:us-east-1:111122223333:task/cairn-us-east-1/05f9aa3626ef400b83e371c84a925ad2`
   exited 0 after real transformer inference. A mid-run claim read showed its
   `updated_at` advancing and 41 seconds remaining on the 45-second lease,
   proving the new heartbeat path under actual long compute. It wrote artifact
@@ -459,7 +464,7 @@ appended below as they are obtained.
   existing ECR repository at digest
   `sha256:4e76d2b29e24c07c83fe19ef83ea373ee04de621b831fe03593202f40890b1a3`.
   Its in-container doctor passed CockroachDB v26.2.5, all nine migrations,
-  `fs_sem`, and AWS account `357199110611`; its real plan exited 0.
+  `fs_sem`, and AWS account `111122223333`; its real plan exited 0.
 - Docker Desktop's first export failed after all build steps because C: had
   reached zero free bytes. Only regenerable Rust/npm workspace caches were
   cleaned (4.2 GB recovered); Docker/WSL was restarted and the cached build
@@ -493,7 +498,7 @@ appended below as they are obtained.
   the installed AWS CLI as an isolated TLS process on Windows. Linux/ECS and
   local MinIO retain the boto3 path. A single process then opened the real
   CockroachDB cluster and fetched the 3,279,707-byte vendored dataset from
-  `s3://cairn-demo-357199110611/datasets/20news-4cat-v1/raw.parquet`, SHA-256
+  `s3://cairn-demo-111122223333/datasets/20news-4cat-v1/raw.parquet`, SHA-256
   `790c5cb1132d65ab5e47e552b356def12ae6d2dc790bda51981c1a4289780dbe`.
 - The local `.env` had no bucket override, so the CLI's development default
   pointed at nonexistent `cairn-dev`. It now selects the existing deployed

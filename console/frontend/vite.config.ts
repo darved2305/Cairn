@@ -2,7 +2,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv } from "vite";
 
-// One image, one deploy path (PROJECT.md §6.1): `npm run build` emits a
+// One image, one deploy path (docs/project/PROJECT.md §6.1): `npm run build` emits a
 // fully static bundle that FastAPI mounts itself (console/api.py::_static_dir),
 // so there is no second container and no CDN dependency for the app shell.
 //

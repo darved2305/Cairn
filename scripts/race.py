@@ -9,7 +9,7 @@ race and prints a pass/fail summary.
 --ecs mode: the real cross-region version — launches one real ECS RunTask
 in each of two regions, both invoking `cairn claim-demo` on the SAME
 work_key within milliseconds of each other, against the SAME CockroachDB
-cluster. This is what PLAN.md D7's exit bar calls for: "scripts/race.py
+cluster. This is what docs/project/PLAN.md D7's exit bar calls for: "scripts/race.py
 runs the cross-region race for real," not two threads on one box.
 """
 

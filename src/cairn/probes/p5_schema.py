@@ -1,4 +1,4 @@
-"""P5 schema_stats — PROJECT.md §4.4.
+"""P5 schema_stats — docs/project/PROJECT.md §4.4.
 
 Proves: schema (names, dtypes, order) and row count are identical, and a
 per-column checksum over a deterministic 10% partition slice matches.

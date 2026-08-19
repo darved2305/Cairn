@@ -1,9 +1,9 @@
-# Content-addressed artifact + fragment storage — PROJECT.md §4.2/§4.5,
+# Content-addressed artifact + fragment storage — docs/project/PROJECT.md §4.2/§4.5,
 # storage/s3.py. One bucket, prefix-scoped by kind (artifacts/fragments/
 # datasets/models); IAM (iam.tf) grants the worker role access scoped to
 # these specific prefixes, not the whole bucket.
 #
-# Security (PLAN.md §10 / "no simulation" audit): block-public-access on
+# Security (docs/project/PLAN.md §10 / "no simulation" audit): block-public-access on
 # every axis, default SSE-S3 encryption, versioning on so an accidental
 # overwrite of a fixed-key object (put_bytes, not put_content_addressed)
 # is recoverable.

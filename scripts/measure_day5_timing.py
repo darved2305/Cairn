@@ -4,7 +4,7 @@
 Reads fragment_commits for one leaf under a parent root derivation + bucket.
 Prints only measured timestamps — never invents a resumed count or margin.
 
-PLAN.md Day 4: if after the first 8-record microchunk there is not enough
+docs/project/PLAN.md Day 4: if after the first 8-record microchunk there is not enough
 useful work left for StopTask before leaf publication, Gate D falls back
 to whole-stage takeover.
 """

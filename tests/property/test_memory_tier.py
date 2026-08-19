@@ -10,7 +10,7 @@ from cairn.db.memory import BLOCKING_TIERS, Match, MatchTier, PlanFeatures, tier
 
 _NOW = datetime(2026, 8, 7, tzinfo=UTC)
 
-# Rank order matches PROJECT.md §4.1's table: exact is the strongest tier,
+# Rank order matches docs/project/PROJECT.md §4.1's table: exact is the strongest tier,
 # then strong_semantic, then weak, then no match at all.
 _RANK = {MatchTier.EXACT: 3, MatchTier.STRONG_SEMANTIC: 2, MatchTier.WEAK: 1, MatchTier.NONE: 0}
 
@@ -46,7 +46,7 @@ _CANDIDATE = PlanFeatures(
 )
 def test_tier_is_monotone_in_cosine_distance(a: float, b: float, causal: bool) -> None:
     """A strictly closer match must never be tiered *below* a farther one,
-    holding every other structured feature fixed — PLAN.md §5's property
+    holding every other structured feature fixed — docs/project/PLAN.md §5's property
     test requirement."""
 
     closer, farther = (a, b) if a <= b else (b, a)

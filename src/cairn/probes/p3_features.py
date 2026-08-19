@@ -1,4 +1,4 @@
-"""P3 feature_resample — PROJECT.md §4.4.
+"""P3 feature_resample — docs/project/PROJECT.md §4.4.
 
 Proves: `sample_size` hash-selected rows are bit-identical between a
 recorded features artifact and a fresh recomputation using the *current*
@@ -22,7 +22,7 @@ therefore compares against the recorded artifact under a *different*
 batch shape than production used to produce it, so this probe can report
 a spurious fail from batching alone, not just from a real semantic
 change. Conservative mode's own rule absorbs this cleanly: "probe not
-bit-exact -> recompute" (PROJECT.md §3.2) — a false fail costs an
+bit-exact -> recompute" (docs/project/PROJECT.md §3.2) — a false fail costs an
 unnecessary recompute, never a wrongful reuse, which is the safe
 direction. It does mean `original_embeddings` passed to `run()` should
 ideally have been captured under the same per-sample batching this probe

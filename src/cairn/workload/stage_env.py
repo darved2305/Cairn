@@ -1,5 +1,5 @@
 """env stage: capture image digest, python version, resolved deps, and
-torch thread config, then compute the env fingerprint. PROJECT.md §5.2:
+torch thread config, then compute the env fingerprint. docs/project/PROJECT.md §5.2:
 ~2s. This is the first stage in the DAG (env -> dataset -> features ->
 checkpoint -> eval) and every other artifact records this fingerprint as
 one of its inputs.
@@ -27,7 +27,7 @@ class EnvManifest:
 
 def _resolved_deps() -> dict[str, str]:
     """{distribution_name: version} for everything installed, sorted by
-    canonical_json's sort_keys — this is the "sorted pip freeze" PROJECT.md
+    canonical_json's sort_keys — this is the "sorted pip freeze" docs/project/PROJECT.md
     calls for, read from interpreter metadata instead of shelling out to
     `pip freeze` (no subprocess, same information, faster)."""
     return {

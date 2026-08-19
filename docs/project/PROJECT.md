@@ -409,7 +409,7 @@ Prefix columns `(stage, error_class)` are used because CockroachDB only accelera
 - CI — a service-account API key drives `ccloud` non-interactively to create an **ephemeral verification cluster** per pull request, apply migrations, run the full integration suite (including the race test) against real CockroachDB, and delete the cluster. No mocks in the concurrency tests.
 - Runtime — `cairn doctor --cloud` runs documented `ccloud cluster info`, parses labeled topology, and persists an ECS-routing decision when the DB is reachable (fail closed otherwise).
 
-**4. Agent Skills Repo** (`cockroachlabs/cockroachdb-skills`, Apache-2.0). Installed at `.agents/skills/` via `npx skills add cockroachlabs/cockroachdb-skills` and committed. Cairn's own contribution guide routes work through them: the retry/serializable-transaction and observability skills are the reference for `cairn/db/txn.py`, and `CONTRIBUTING.md` instructs agents to load the performance and resilience skills before touching schema or transaction code. `docs/SKILLS_USAGE.md` records exactly which skills informed which files — including the two schema changes they caused (see §10).
+**4. Agent Skills Repo** (`cockroachlabs/cockroachdb-skills`, Apache-2.0). Installed at `.agents/skills/` via `npx skills add cockroachlabs/cockroachdb-skills` and committed. Cairn's own contribution guide routes work through them: the retry/serializable-transaction and observability skills are the reference for `cairn/db/txn.py`, and `CONTRIBUTING.md` instructs agents to load the performance and resilience skills before touching schema or transaction code. `docs/project/SKILLS_USAGE.md` records exactly which skills informed which files — including the two schema changes they caused (see §10).
 
 ### 6.3 AWS services — what each one does
 
@@ -518,7 +518,7 @@ Cairn also does not: replace your orchestrator (it plugs into Make/GitHub Action
 | Clear setup/run instructions | `README.md` — 6 commands to a running system | Quickstart block |
 | Video < 3 min | §12 script — 2:55 | — |
 | CockroachDB memory visibly working | Claim Theatre + Decision Ledger + Memory Inspector | Live SQL and live rows on screen |
-| Explain what each tool does | §6.2, §6.3, `docs/TOOLS.md` | Video 2:25–2:45 |
+| Explain what each tool does | §6.2, §6.3, `docs/architecture/SUBSTRATES.md` | Video 2:25–2:45 |
 | New project in submission period | First commit ≥ 2026-08-06, no vendored prior work | `git log` |
 | No simulation | §5, §13 | Real tracebacks, real S3 objects, real ECS ARNs, real durations |
 
@@ -533,7 +533,7 @@ Recorded honestly, because "we installed it" is not meaningful use.
 3. **Vector index prefix columns.** The performance skill plus the vector-index docs established that filtered vector search is only accelerated when filters match prefix columns; the index was redefined as `(stage, error_class, embedding vector_cosine_ops)` rather than `(embedding)` alone.
 4. **Batch-insert avoidance.** Vector inserts are written one row at a time, per documented guidance that large batch inserts of `VECTOR` degrade performance.
 
-`docs/SKILLS_USAGE.md` carries these with file/line references and the before/after benchmark numbers.
+`docs/project/SKILLS_USAGE.md` carries these with file/line references and the before/after benchmark numbers.
 
 ---
 
@@ -763,8 +763,8 @@ CREATE TABLE cost_rates (
 | ECS cold start eats the demo | Workers are pre-warmed; the video labels the one compressed segment explicitly. |
 | Static reachability is unsound for dynamic Python | Hard refusal on `importlib`/`__import__`/`getattr`-dispatch/`eval`/`exec`/entry-points in the reachable set. Documented as an approximation with a stated restriction, not as a proof. |
 | Probe passes but artifact is actually stale | Contradiction detection + one-way quarantine (§6.5), plus conservative-mode bitwise tolerance and hard refusal on env drift. |
-| Two-region Fargate cost | Demo tasks are 2 vCPU / 4 GiB, minutes at a time; teardown script deletes the cluster and services. Estimated total spend for the full build and demo period is under $15, itemized in `docs/COST.md`. |
-| Scope overrun before 2026-08-18 | §Cut list in `PLAN.md` — MCP inspector, second region, and the extrapolation panel are the ordered cuts. The core (claims + causal reuse + negative memory + probes) is D1–D6. |
+| Two-region Fargate cost | Demo tasks are 2 vCPU / 4 GiB, minutes at a time; teardown script deletes the cluster and services. Estimated total spend for the full build and demo period is under $15, itemized in `docs/operations/COST.md`. |
+| Scope overrun before 2026-08-18 | §Cut list in `docs/project/PLAN.md` — MCP inspector, second region, and the extrapolation panel are the ordered cuts. The core (claims + causal reuse + negative memory + probes) is D1–D6. |
 
 ---
 

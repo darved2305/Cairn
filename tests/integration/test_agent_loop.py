@@ -1,5 +1,5 @@
 """Integration test for the full agent loop pipeline (agent/loop.py) —
-PROJECT.md §6.4. See tests/integration/test_agent_remediation.py for the
+docs/project/PROJECT.md §6.4. See tests/integration/test_agent_remediation.py for the
 negative-memory/REMEDIATE_AND_REPLAN tests, split out because they don't
 need real S3 or a loaded embedding model and this one does.
 

@@ -1,8 +1,8 @@
 """dataset stage: normalize whitespace, stable-sort by doc_id, produce the
-deterministic train/test split. PROJECT.md §5.2: ~9s. Reads the vendored
+deterministic train/test split. docs/project/PROJECT.md §5.2: ~9s. Reads the vendored
 raw snapshot (already header/footer/quote-stripped at vendor time — see
 scripts/vendor_dataset.py) so this stage's own determinism never depends
-on an external site being reachable at run time (PROJECT.md §5.4).
+on an external site being reachable at run time (docs/project/PROJECT.md §5.4).
 """
 
 from __future__ import annotations

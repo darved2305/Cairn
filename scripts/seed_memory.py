@@ -3,15 +3,15 @@
 
 Each of the three runs the *actual* misconfigured stage against the real
 workload and lets the real exception happen — nothing here is a scripted
-string standing in for a traceback (PLAN.md's anti-simulation rule). After
+string standing in for a traceback (docs/project/PLAN.md's anti-simulation rule). After
 capturing the failure, this also runs the *fixed* config for real, confirms
 it succeeds, and records that as the remediation's `verified_run_id` — so
-"applying the remediation lets it through" (PLAN.md D6 exit criterion) is
+"applying the remediation lets it through" (docs/project/PLAN.md D6 exit criterion) is
 something this script has actually observed, not asserted.
 
-F1 — label-space mismatch (PROJECT.md §5.3): train.num_labels set lower
+F1 — label-space mismatch (docs/project/PROJECT.md §5.3): train.num_labels set lower
      than the highest label value actually present -> real IndexError out
-     of CrossEntropyLoss ("Target 5 is out of bounds."). PROJECT.md's own
+     of CrossEntropyLoss ("Target 5 is out of bounds."). docs/project/PROJECT.md's own
      text frames this as num_labels moving 4->6 against a 4-class table,
      but that direction never raises (extra output classes are harmless);
      this seeds the direction that genuinely reproduces the cited error.
@@ -19,10 +19,10 @@ F2 — embedding dimension mismatch: classifier.input_dim=384 fed 768-d
      features (as if the embedding model were mpnet). D3's own
      run_epochs() already guards this with an explicit dimension check, so
      the real, observed exception is a ValueError with a clear message,
-     not the raw PyTorch matmul RuntimeError PROJECT.md's prose describes
+     not the raw PyTorch matmul RuntimeError docs/project/PROJECT.md's prose describes
      — still a completely real, unfabricated failure, just a cleaner one
      than a bare shape-mismatch traceback. This is Priya's
-     notes/gotchas.md line 12, made machine-readable (PROJECT.md §5.3).
+     notes/gotchas.md line 12, made machine-readable (docs/project/PROJECT.md §5.3).
 F3 — bounded memory exhaustion: features.batch_size=4096 with
      max_seq_length=512, under workload/determinism.py's RLIMIT_AS
      ceiling -> a real, bounded allocation failure. RLIMIT_AS is a
@@ -101,14 +101,14 @@ def _joined_data(n: int = 40, embedding_dim: int = 384, num_classes: int = 4) ->
 
 
 def seed_f1(pool, embedder) -> None:
-    # PROJECT.md §5.3 describes this as "num_labels: 4 -> 6 while the
+    # docs/project/PROJECT.md §5.3 describes this as "num_labels: 4 -> 6 while the
     # feature table has 4 classes" — but empirically, a model configured
     # with MORE output classes than the data uses never raises (labels
     # 0..3 are always valid indices into a 6-wide output). The real,
     # reproducible direction of this bug is the other way: num_labels set
     # LOWER than the highest label value actually present. That is what
     # genuinely raises CrossEntropyLoss's "IndexError: Target 5 is out of
-    # bounds." — the exact error PROJECT.md cites — so that is what this
+    # bounds." — the exact error docs/project/PROJECT.md cites — so that is what this
     # seeds, rather than a config direction that cannot fail.
     joined = _joined_data(embedding_dim=384, num_classes=6)
 
@@ -222,7 +222,7 @@ def seed_f3(pool, embedder) -> None:
         # documented no-op on Windows — RLIMIT_AS doesn't exist here, so
         # there is no real ceiling for an oversized batch to hit. Skipping
         # honestly beats fabricating a MemoryError that this process never
-        # actually raised (PLAN.md's anti-simulation rule); the real
+        # actually raised (docs/project/PLAN.md's anti-simulation rule); the real
         # enforcement point is the Linux ECS Fargate container this ships
         # in, where this seeding step runs for real (D7+).
         print("F3 skipped: RLIMIT_AS is a no-op on win32; run this on Linux to seed it for real")
@@ -240,7 +240,7 @@ def seed_f3(pool, embedder) -> None:
     def _broken() -> None:
         # batch_size=4096 with max_seq_length=512 under the RLIMIT_AS
         # ceiling determinism.apply() sets — a real, bounded allocation
-        # failure, not a simulated one (PROJECT.md §5.3).
+        # failure, not a simulated one (docs/project/PROJECT.md §5.3).
         stage_features.run(dataset_bytes, batch_size=4096, max_seq_length=512, shard_count=1)
 
     failure = _run_and_capture(_broken)

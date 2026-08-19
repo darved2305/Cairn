@@ -1,6 +1,6 @@
 # Cost
 
-Full itemized spend table lands on D12 (PLAN.md §4) once real infra has run
+Full itemized spend table lands on D12 (docs/project/PLAN.md §4) once real infra has run
 for real and there are real numbers to show. This section — the safety
 guardrails — lands now, D3, before any AWS resource with an hourly cost
 exists, because that's the order that actually prevents a surprise bill
@@ -39,7 +39,7 @@ defense is not creating the resource, or not leaving it running.
   command that makes this a 30-second decision instead of a remembered
   chore.
 - **Two-region is the first thing cut if cost pressure shows up before
-  region parity is needed for the video.** PLAN.md §6 already lists this;
+  region parity is needed for the video.** docs/project/PLAN.md §6 already lists this;
   cost is a second, independent reason to default to it.
 - **CockroachDB Cloud runs on the Standard trial**, which is time-boxed and
   free for its duration — it is not an AWS cost and does not count against

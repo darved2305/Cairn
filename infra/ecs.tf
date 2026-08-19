@@ -1,4 +1,4 @@
-# ECS Fargate — PROJECT.md §6.3: "Runs the real workload as tasks in two
+# ECS Fargate — docs/project/PROJECT.md §6.3: "Runs the real workload as tasks in two
 # regions (us-east-1, us-west-2) and hosts the console." Uses each
 # region's default VPC/subnets rather than a hand-rolled network stack —
 # this is a demo cluster meant to be torn down after judging, not a
@@ -6,7 +6,7 @@
 # Fargate task a public IP and internet route, which is all it needs to
 # reach CockroachDB Cloud, S3, ECR, and Bedrock.
 #
-# Workers are NOT a persistent ECS Service: PROJECT.md's own demo script
+# Workers are NOT a persistent ECS Service: docs/project/PROJECT.md's own demo script
 # launches "worker A (us-east-1) and worker B (us-west-2) within 300ms of
 # each other" on demand for one race, not as an always-on process burning
 # Fargate-hours 24/7. scripts/race.py and scripts/kill_worker.sh (D7) call
@@ -124,7 +124,7 @@ resource "aws_cloudwatch_log_group" "console" {
 
 resource "aws_secretsmanager_secret" "database_url" {
   name        = "${var.project_name}/database-url"
-  description = "CockroachDB Cloud connection string — PLAN.md §7 D7."
+  description = "CockroachDB Cloud connection string — docs/project/PLAN.md §7 D7."
 }
 
 resource "aws_secretsmanager_secret_version" "database_url" {
@@ -134,7 +134,7 @@ resource "aws_secretsmanager_secret_version" "database_url" {
 
 # --- the console's OWN, read-only credential ------------------------------
 #
-# PLAN.md §8 open decision 4 and D10's security checklist: the console must
+# docs/project/PLAN.md §8 open decision 4 and D10's security checklist: the console must
 # not share the workers' write-capable database credential. Today it does —
 # `local.common_secrets` below is injected into all three task definitions —
 # and that is the single largest security gap in this stack, because the
@@ -268,7 +268,7 @@ resource "aws_ecs_task_definition" "console" {
     name      = "console"
     image     = local.image
     essential = true
-    # The real console server. One image, one deploy path (PROJECT.md §6.1):
+    # The real console server. One image, one deploy path (docs/project/PROJECT.md §6.1):
     # this is the same image the workers run, with a different command, and
     # `cairn.console.api` serves both the JSON API and the built React SPA
     # baked in at /app/src/cairn/console/static (see Dockerfile).

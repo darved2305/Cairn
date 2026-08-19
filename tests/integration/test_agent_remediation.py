@@ -6,7 +6,7 @@ primitives, memory.search/tier, were previously proven wired end-to-end).
 Two rules are pinned here, at the loop level:
 
 1. A remembered failure with no *verified* remediation on record is
-   advisory-only and never blocks. PROJECT.md §4.1 defines both blocking
+   advisory-only and never blocks. docs/project/PROJECT.md §4.1 defines both blocking
    tiers in terms of the recorded remediation's changed_keys (those are
    what make a structured feature *causal*), and db/memory.py's search
    only joins `succeeded` remediations — so a signature carrying nothing
@@ -20,7 +20,7 @@ Two rules are pinned here, at the loop level:
 2. A remembered failure *with* a verified remediation blocks and is
    auto-fixed: REMEDIATE_AND_REPLAN applies the recorded changed_keys,
    re-plans, re-queries memory against the modified plan, and only then
-   claims (PLAN.md D6's exit bar, proven at the tier level in
+   claims (docs/project/PLAN.md D6's exit bar, proven at the tier level in
    test_d6_exit.py).
 
 Deliberately touches only the live CockroachDB cluster — no S3, no boto3
@@ -100,7 +100,7 @@ def test_unverified_remediation_is_advisory_only_and_never_blocks(
     remediation proposal (succeeded=False — what classify/llm.py's
     author_remediation produces until a real run using it succeeds). The
     loop must NOT block: with no verified remediation there are no known
-    causal keys, both blocking tiers are unreachable (PROJECT.md §4.1),
+    causal keys, both blocking tiers are unreachable (docs/project/PROJECT.md §4.1),
     and the match is advisory-only. run_stage therefore proceeds past the
     pre-flight check into claims.acquire — here hitting the SUCCEEDED
     claim pre-seeded under this exact work_key, i.e. identity reuse with

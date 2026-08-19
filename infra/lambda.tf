@@ -1,4 +1,4 @@
-# Lease reaper — PROJECT.md §4.5. No VPC attachment: CockroachDB Cloud is
+# Lease reaper — docs/project/PROJECT.md §4.5. No VPC attachment: CockroachDB Cloud is
 # reached over the public internet (see iam.tf's comment on the same
 # point), so there's no NAT gateway to pay for just to run a 30-second
 # sweep. Run scripts/build_reaper_lambda.sh before `terraform apply` —

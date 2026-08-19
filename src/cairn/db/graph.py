@@ -82,7 +82,7 @@ def insert_artifact(
 ) -> None:
     """Insert an artifact and its typed inputs inside the caller's transaction.
 
-    `allow_existing` implements PROJECT.md's completion idempotency: two
+    `allow_existing` implements docs/project/PROJECT.md's completion idempotency: two
     causally distinct work keys may deterministically produce the same bytes,
     and therefore the same content-addressed artifact. The first insertion is
     the artifact's canonical provenance; later claims converge on that row

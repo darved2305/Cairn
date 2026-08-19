@@ -1,11 +1,11 @@
-"""Contradiction handling and one-way quarantine — PROJECT.md §6.5.
+"""Contradiction handling and one-way quarantine — docs/project/PROJECT.md §6.5.
 
 If a later run produces evidence that contradicts an earlier reuse, Cairn
 writes a `contradictions` row, quarantines the reused artifact
 (`artifacts.quarantined_at`), and transitively quarantines every artifact
 downstream of it (walked via `artifact_inputs.input_kind='upstream'`) since
 each of those was built on a foundation that turned out to be wrong. This
-is the mechanism PROJECT.md §3.1 depends on: "the model may propose reuse"
+is the mechanism docs/project/PROJECT.md §3.1 depends on: "the model may propose reuse"
 is only survivable if a wrong deterministic authorization is discoverable
 and stoppable after the fact.
 

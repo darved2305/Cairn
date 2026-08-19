@@ -170,7 +170,7 @@ from one container and one port (`src/cairn/console/`, `console/frontend/`).
 
 ```mermaid
 flowchart LR
-  subgraph img["One image — PROJECT.md §6.1"]
+  subgraph img["One image — docs/project/PROJECT.md §6.1"]
     API["FastAPI<br/>/api/*"]
     SPA["React SPA<br/>StaticFiles mount at /"]
   end
@@ -231,7 +231,7 @@ reason. There is no code path that produces an invented dollar figure.
 ### 5. A probe never claims full equivalence
 
 Sample and population are rendered as a fraction, always. See
-[`PROBES.md`](PROBES.md) for each probe's explicit non-guarantee.
+[`PROBES.md`](../internals/PROBES.md) for each probe's explicit non-guarantee.
 
 ### 6. Contradictions quarantine, one way
 
@@ -279,15 +279,15 @@ composition — and asserted by a CI test over three consecutive runs.
 | Model-authored SQL cannot escape read-only | Three layers: a pre-flight keyword/shape guard, `SET TRANSACTION READ ONLY`, and the read-only role. `crdb_internal`, DDL, DML, and session control are all refused before the database is contacted. |
 | Bedrock scope | `bedrock:InvokeModel` on exactly two foundation-model ARNs, plus `bedrock-mantle:CreateInference` on one project ARN. Nothing wildcarded. |
 | S3 scope | Object access granted per-prefix (`dataset/*`, `features/*`, `checkpoint/*`, `eval/*`, `fragments/*`, `datasets/*`, `models/*`), never bucket-wide. Public access blocked. |
-| Network | ALB reachable only from CloudFront; workers egress-only with no inbound; no NAT Gateway anywhere (see [`COST.md`](COST.md)). |
+| Network | ALB reachable only from CloudFront; workers egress-only with no inbound; no NAT Gateway anywhere (see [`COST.md`](../operations/COST.md)). |
 | Judge mode | No login by design. Read-only is enforced at the role layer, not in the UI. |
 
 ---
 
 ## Where to read next
 
-- [`TOOLS.md`](TOOLS.md) — the four CockroachDB tools and six AWS services, and what breaks without each.
-- [`PROBES.md`](PROBES.md) — each probe's guarantee and its explicit non-guarantee.
-- [`COST.md`](COST.md) — spend guardrails and the emergency stop.
-- [`SKILLS_USAGE.md`](SKILLS_USAGE.md) — which CockroachDB skills changed which files.
-- [`../PROJECT.md`](../PROJECT.md) — the authoritative design, including the full schema in §11.
+- [`SUBSTRATES.md`](SUBSTRATES.md) — the four CockroachDB tools and six AWS services, and what breaks without each.
+- [`PROBES.md`](../internals/PROBES.md) — each probe's guarantee and its explicit non-guarantee.
+- [`COST.md`](../operations/COST.md) — spend guardrails and the emergency stop.
+- [`SKILLS_USAGE.md`](../project/SKILLS_USAGE.md) — which CockroachDB skills changed which files.
+- [`../project/PROJECT.md`](../project/PROJECT.md) — the authoritative design, including the full schema in §11.

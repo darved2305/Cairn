@@ -1,8 +1,8 @@
 """Bedrock Claude: change-classification hypotheses and remediation
-authoring — PROJECT.md §6.3, PLAN.md §2's locked call shape.
+authoring — docs/project/PROJECT.md §6.3, docs/project/PLAN.md §2's locked call shape.
 
 Every function here *proposes*; nothing it returns is ever treated as
-authorization. PROJECT.md §3.1: "The model may propose reuse. Deterministic
+authorization. docs/project/PROJECT.md §3.1: "The model may propose reuse. Deterministic
 evidence must authorize it." Concretely: `author_remediation`'s output is
 written to `remediations` with `succeeded=False` — it only becomes causal
 (usable by `db/memory.py::tier` to elevate a match to a blocking tier) once
@@ -11,7 +11,7 @@ a real run using it actually succeeds and something calls
 never sets that flag itself.
 
 `CAIRN_NO_LLM` degrades every function here to returning `None` rather than
-raising — PLAN.md §13: "the demo's correctness path never depends on the
+raising — docs/project/PLAN.md §13: "the demo's correctness path never depends on the
 LLM." Callers must treat `None` as "no proposal available", not as an
 error, and fall back to the deterministic-only path.
 """
@@ -110,7 +110,7 @@ def _no_llm() -> bool:
 
 
 def _client() -> Any:
-    # PLAN.md §2's locked call shape — AnthropicBedrockMantle, not the
+    # docs/project/PLAN.md §2's locked call shape — AnthropicBedrockMantle, not the
     # plain AnthropicBedrock client; Sonnet 5's `thinking`/`output_config`
     # parameters below are only accepted through this client.
     from anthropic import AnthropicBedrockMantle
@@ -137,7 +137,7 @@ def _structured_call(
         messages=[{"role": "user", "content": user_content}],
     )
     # Structured-output responses carry exactly one text block holding the
-    # schema-validated JSON payload (PLAN.md §2's locked call shape).
+    # schema-validated JSON payload (docs/project/PLAN.md §2's locked call shape).
     text = next(block.text for block in response.content if block.type == "text")
     result: dict[str, Any] = json.loads(text)
     return result

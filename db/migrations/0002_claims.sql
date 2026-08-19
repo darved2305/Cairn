@@ -1,6 +1,6 @@
 -- 0002_claims.sql
 -- Audit trail for fenced ownership handoffs on work_claims (lease expiry,
--- future cancellation). See db/claims.py and PROJECT.md §4.2.
+-- future cancellation). See db/claims.py and docs/project/PROJECT.md §4.2.
 
 CREATE TABLE ownership_transfers (
   transfer_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),

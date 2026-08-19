@@ -6,7 +6,7 @@
  * section, three solution cards, a horizontal tab strip over full-width
  * product imagery, a four-up stat grid, a multi-column footer. That structure
  * is a pattern; the palette, the type, and every single word and number below
- * are Cairn's own, taken from PROJECT.md.
+ * are Cairn's own, taken from docs/project/PROJECT.md.
  *
  * The "dashboard imagery" in the tabbed section is deliberately not imagery.
  * It is the live panels themselves, mounted inline and reading the same
@@ -129,7 +129,7 @@ const WASTES = [
   },
 ];
 
-// PROJECT.md §1.1's table, unedited. These are the cases a declared-input
+// docs/project/PROJECT.md §1.1's table, unedited. These are the cases a declared-input
 // cache invalidates and a careful engineer would not.
 const INVALIDATION_CASES: Array<[string, string, string]> = [
   ["Docstring added to train.py", "Invalidates checkpoint", "Cannot affect the checkpoint"],
@@ -454,18 +454,18 @@ const FOOTER_LINKS: Array<[string, Array<[string, string]>]> = [
     "Project",
     [
       ["GitHub repository", GITHUB],
-      ["PROJECT.md — full design", `${GITHUB}/blob/main/PROJECT.md`],
-      ["PLAN.md — build plan", `${GITHUB}/blob/main/PLAN.md`],
+      ["docs/project/PROJECT.md — full design", `${GITHUB}/blob/main/docs/project/PROJECT.md`],
+      ["docs/project/PLAN.md — build plan", `${GITHUB}/blob/main/docs/project/PLAN.md`],
     ],
   ],
   [
     "Docs",
     [
-      ["Architecture", `${GITHUB}/blob/main/docs/ARCHITECTURE.md`],
-      ["Tools used", `${GITHUB}/blob/main/docs/TOOLS.md`],
-      ["Probes: guarantees and non-guarantees", `${GITHUB}/blob/main/docs/PROBES.md`],
-      ["Cost", `${GITHUB}/blob/main/docs/COST.md`],
-      ["Skills usage", `${GITHUB}/blob/main/docs/SKILLS_USAGE.md`],
+      ["Architecture", `${GITHUB}/blob/main/docs/architecture/OVERVIEW.md`],
+      ["Tools used", `${GITHUB}/blob/main/docs/architecture/SUBSTRATES.md`],
+      ["Probes: guarantees and non-guarantees", `${GITHUB}/blob/main/docs/internals/PROBES.md`],
+      ["Cost", `${GITHUB}/blob/main/docs/operations/COST.md`],
+      ["Skills usage", `${GITHUB}/blob/main/docs/project/SKILLS_USAGE.md`],
     ],
   ],
   [
@@ -516,7 +516,7 @@ export function Footer() {
         </div>
         <p className="mt-12 border-t border-paper/15 pt-6 text-xs text-paper/50">
           Apache-2.0. Cairn never claims a probe proves full artifact equivalence — see
-          docs/PROBES.md for each probe&rsquo;s explicit non-guarantee.
+          docs/internals/PROBES.md for each probe&rsquo;s explicit non-guarantee.
         </p>
       </div>
     </footer>

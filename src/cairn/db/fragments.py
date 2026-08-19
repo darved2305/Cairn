@@ -1,4 +1,4 @@
-"""Per-fragment checkpoint persistence — PROJECT.md §4.5, `run_fragments`.
+"""Per-fragment checkpoint persistence — docs/project/PROJECT.md §4.5, `run_fragments`.
 
 A resuming worker looks up what it already has by `(work_key, fragment_index)`
 before recomputing anything; content is verified separately against S3 by
